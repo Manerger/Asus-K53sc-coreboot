@@ -21,7 +21,11 @@ that applies to upstream coreboot, which is what you actually need to build it.
 ## What does not
 
 - Brightness keys: the EC never raises the ACPI queries for them
-- Thermal trip points differ from the vendor firmware's values
+
+Thermal management works: the EC's trip points read 88/90 °C, the same as the
+vendor firmware. (An earlier 103/105 °C reading was an artifact of `asus_wmi`
+not loading, because coreboot's DSDT had no `ATKD` device to bind to — not a
+firmware difference. Declaring `ATKD` resolved it.)
 
 ## The S3/S5 fix
 
