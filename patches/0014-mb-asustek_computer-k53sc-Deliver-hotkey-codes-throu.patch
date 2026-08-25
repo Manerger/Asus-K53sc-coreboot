@@ -1,0 +1,114 @@
+From 28b8d9a7afe0173c6407700ecded64738c4f81ad Mon Sep 17 00:00:00 2001
+From: manerger <filidog82@gmail.com>
+Date: Mon, 24 Aug 2026 17:11:15 +0200
+Subject: [PATCH 14/21] mb/asustek_computer/k53sc: Deliver hotkey codes through
+ _WED
+
+With the EC in ACPI mode the query handlers ran and ATKN was reached, but
+no event ever arrived at asus_wmi.
+
+ATKN passed the key code as the Notify value. The WMI layer only
+dispatches a Notify whose value matches an event ID declared in _WDG,
+which is 0xFF here, so a Notify of 0x30 was discarded. _WED then returned
+its own argument, which is the event ID rather than a key code.
+
+Stock queues the code and notifies the declared event ID instead:
+
+  Method (IANE, 1, Serialized) { IANQ (Arg0); Notify (ATKD, 0xFF) }
+
+and _WED(0xFF) returns the queued code. Add a 16-entry ring with IANQ and
+GANQ, make ATKN queue then notify 0xFF, and have _WED dequeue.
+
+The ring is a clean reimplementation rather than a literal copy: stock's
+IANQ increments its index before storing while GANQ reads before
+incrementing, which only agrees for one initial index value, and that
+value is not visible in the disassembly.
+
+Tested on an ASUS K53SC with an i7-3840QM: the volume keys now work, and
+asus_wmi reports no unknown key codes. Brightness is not covered - stock
+handles it in _Q0E/_Q0F by driving GFX0.CBLV directly, which this DSDT
+does not implement.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .../asustek_computer/k53sc/acpi/atkd.asl      | 55 ++++++++++++++++++-
+ 1 file changed, 53 insertions(+), 2 deletions(-)
+
+diff --git a/src/mainboard/asustek_computer/k53sc/acpi/atkd.asl b/src/mainboard/asustek_computer/k53sc/acpi/atkd.asl
+index 1f00a4948b..6c2848fc57 100644
+--- a/src/mainboard/asustek_computer/k53sc/acpi/atkd.asl
++++ b/src/mainboard/asustek_computer/k53sc/acpi/atkd.asl
+@@ -43,9 +43,59 @@ Device (ATKD)
+ 	/* Model name returned by INIT. */
+ 	Name (MNAM, "K53SC")
+ 
++	/*
++	 * Pending hotkey codes.
++	 *
++	 * The WMI layer only dispatches a Notify whose value matches an event
++	 * ID declared in _WDG, which is 0xFF here. The key code therefore
++	 * cannot be passed as the Notify value; stock queues it and notifies
++	 * 0xFF, and the driver then calls _WED(0xFF) to collect it. This is a
++	 * clean reimplementation of stock's 16-entry ring rather than a literal
++	 * copy, because stock's indices rely on an initial value that is not
++	 * visible in the disassembly.
++	 */
++	Name (ATKQ, Package (0x10)
++	{
++		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
++	})
++	Name (AQHI, 0)	/* read index */
++	Name (AQTI, 0)	/* write index */
++	Name (AQNO, 0)	/* queued entries */
++
++	Method (IANQ, 1, Serialized)
++	{
++		If ((AQNO >= 0x10))
++		{
++			Return (Zero)
++		}
++
++		ATKQ [AQTI] = Arg0
++		AQTI = ((AQTI + One) & 0x0F)
++		AQNO++
++		Return (One)
++	}
++
++	Method (GANQ, 0, Serialized)
++	{
++		If (AQNO)
++		{
++			Local0 = DerefOf (ATKQ [AQHI])
++			AQHI = ((AQHI + One) & 0x0F)
++			AQNO--
++			Return (Local0)
++		}
++
++		Return (Ones)
++	}
++
+ 	Method (_WED, 1, NotSerialized)
+ 	{
+-		Return (Arg0)
++		If ((Arg0 == 0xFF))
++		{
++			Return (GANQ ())
++		}
++
++		Return (Ones)
+ 	}
+ 
+ 	Method (WMNB, 3, Serialized)
+@@ -114,7 +164,8 @@ Device (ATKD)
+ 	{
+ 		If (ATKP)
+ 		{
+-			Notify (\_SB.ATKD, Arg0)
++			IANQ (Arg0)
++			Notify (\_SB.ATKD, 0xFF)
+ 		}
+ 	}
+ }
+-- 
+2.55.0
+

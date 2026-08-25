@@ -1,0 +1,123 @@
+From 8986c7f9b073f41b3bf2173797886aad55110aab Mon Sep 17 00:00:00 2001
+From: manerger <filidog82@gmail.com>
+Date: Wed, 12 Aug 2026 21:28:25 +0200
+Subject: [PATCH 07/21] mb/asustek_computer/k53sc: Hand the CPU Tjmax to the EC
+ in bootblock
+
+The stock firmware's ITEPEI module reads the thermal control temperature
+from MSR_TEMPERATURE_TARGET and writes it to the EC configuration index
+0x1a on every boot, before anything else touches the EC. coreboot never
+did this, so replicate it.
+
+Ramstage programs the LPC generic decode ranges from the devicetree, but
+the EC configuration pair at 0x257/0x258 has to be reachable this early,
+so LPC_GEN3_DEC is also set here with the same value as devicetree
+"gen3_dec".
+
+Every port, command and index is transcribed from the stock module;
+nothing is guessed.
+
+Honest note on effect: this was expected to move the EC thermal trip
+points, which sit at 103/105 C under coreboot against 88/90 C observed
+under stock. It does not. The same sequence was also tried from
+userspace with no effect. The trip-point difference is instead explained
+by stock running Linux with asus_wmi bound to an ATKD device that
+coreboot did not declare, so the EC was simply never managed by the OS.
+Kept because it matches stock behaviour, but it fixes nothing on its own.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .../asustek_computer/k53sc/early_init.c       | 72 +++++++++++++++++++
+ 1 file changed, 72 insertions(+)
+
+diff --git a/src/mainboard/asustek_computer/k53sc/early_init.c b/src/mainboard/asustek_computer/k53sc/early_init.c
+index 8e75f859aa..31ea618009 100644
+--- a/src/mainboard/asustek_computer/k53sc/early_init.c
++++ b/src/mainboard/asustek_computer/k53sc/early_init.c
+@@ -1,11 +1,83 @@
+ /* SPDX-License-Identifier: GPL-2.0-only */
+ 
++#include <arch/io.h>
+ #include <bootblock_common.h>
++#include <cpu/intel/model_206ax/model_206ax.h>
++#include <cpu/x86/msr.h>
+ #include <device/pci_ops.h>
+ #include <southbridge/intel/bd82x6x/pch.h>
++#include <southbridge/intel/common/lpc_def.h>
++
++/*
++ * The IT8572E exposes a configuration index/data pair on LPC. The stock
++ * firmware's ITEPEI module uses it to hand the CPU's thermal control
++ * temperature to the EC on every boot, before anything else touches the EC.
++ */
++#define K53SC_EC_STATUS		0x258	/* ECIC in the stock DSDT */
++#define K53SC_EC_DATA		0x257	/* ECID in the stock DSDT */
++#define K53SC_EC_IBF		(1 << 1)
++
++#define K53SC_EC_UNLOCK		0xff
++#define K53SC_EC_CMD_WRITE	0x95
++#define K53SC_EC_IDX_TJMAX	0x1a
++
++/* Stock polls the status port using an I/O read to 0xed as the delay. */
++#define K53SC_IO_DELAY_PORT	0xed
++
++static void k53sc_ec_wait_ibf(void)
++{
++	unsigned int i;
++
++	for (i = 0; i < 0x10000; i++) {
++		outb(0, K53SC_IO_DELAY_PORT);
++		if (!(inb(K53SC_EC_STATUS) & K53SC_EC_IBF))
++			return;
++	}
++}
++
++static void k53sc_ec_put(uint16_t port, uint8_t val)
++{
++	k53sc_ec_wait_ibf();
++	outb(val, port);
++}
++
++/*
++ * Replicate the stock ITEPEI Tjmax handoff.
++ *
++ * Without it the EC falls back to built-in thermal trip points (103/105 C
++ * observed) instead of ones derived from the CPU's actual thermal control
++ * temperature; stock, which performs this, ends up at 88/90 C on a part whose
++ * Tjmax is 100 C.
++ *
++ * Every port, command and index here is transcribed from the stock module.
++ */
++static void k53sc_ec_program_tjmax(void)
++{
++	msr_t msr = rdmsr(MSR_TEMPERATURE_TARGET);
++	uint8_t tjmax = (msr.lo >> 16) & 0xff;
++
++	if (!tjmax)
++		return;
++
++	k53sc_ec_put(K53SC_EC_STATUS, K53SC_EC_UNLOCK);
++	k53sc_ec_put(K53SC_EC_STATUS, K53SC_EC_CMD_WRITE);
++	k53sc_ec_put(K53SC_EC_DATA, K53SC_EC_IDX_TJMAX);
++	k53sc_ec_put(K53SC_EC_DATA, tjmax);
++	k53sc_ec_wait_ibf();
++}
+ 
+ void bootblock_mainboard_early_init(void)
+ {
+ 	pci_write_config16(PCI_DEV(0, 0x1f, 0), 0x82, 0x1c0f);
+ 	pci_write_config16(PCI_DEV(0, 0x1f, 0), 0x80, 0x0000);
++
++	/*
++	 * Generic decode range 3 routes 0x250-0x25f to LPC. Ramstage programs
++	 * this from the devicetree, but the EC configuration pair at
++	 * 0x257/0x258 has to be reachable this early, so set it here too. The
++	 * value matches devicetree "gen3_dec".
++	 */
++	pci_write_config32(PCI_DEV(0, 0x1f, 0), LPC_GEN3_DEC, 0x002c0251);
++
++	k53sc_ec_program_tjmax();
+ }
+-- 
+2.55.0
+

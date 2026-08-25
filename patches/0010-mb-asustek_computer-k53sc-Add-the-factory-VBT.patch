@@ -1,0 +1,57 @@
+From cca16109b4d0eba193b39ca7ccf5f62d8633375e Mon Sep 17 00:00:00 2001
+From: manerger <filidog82@gmail.com>
+Date: Sun, 23 Aug 2026 21:04:53 +0200
+Subject: [PATCH 10/21] mb/asustek_computer/k53sc: Add the factory VBT
+
+Without a VBT in CBFS the OS driver has no panel or port description and
+falls back to defaults:
+
+  i915 0000:00:02.0: [drm] Failed to find VBIOS tables (VBT)
+
+Add the factory VBT, recovered from the stock ASUS image ("$VBT
+SANDYBRIDGE-M", VBT version 100, BDB version 163, 4060 bytes). It
+declares the internal LVDS panel (panel_type 2), HDMI on dvo_port HDMIC
+and DP on dvo_port DPD, and carries the LVDS timing, backlight and power
+sequencing blocks.
+
+Its header checksum byte does not verify, which is common for OEM VBTs
+and harmless: both vbt_validate() in src/drivers/intel/gma/opregion.c and
+i915 check only the $VBT signature.
+
+Note this does not change which backlight interface the OS picks. i915
+still logs "Skipping intel_backlight registration", because that is
+decided by acpi_video_backlight_use_native() rather than by the VBT.
+
+Tested on an ASUS K53SC with an i7-3840QM: the VBT is found and the
+failure message is gone.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ src/mainboard/asustek_computer/k53sc/Kconfig | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/mainboard/asustek_computer/k53sc/Kconfig b/src/mainboard/asustek_computer/k53sc/Kconfig
+index 48c3d47af1..f321daf770 100644
+--- a/src/mainboard/asustek_computer/k53sc/Kconfig
++++ b/src/mainboard/asustek_computer/k53sc/Kconfig
+@@ -8,6 +8,7 @@ config BOARD_SPECIFIC_OPTIONS
+ 	select BOARD_ROMSIZE_KB_4096
+ 	select EC_ACPI
+ 	select HAVE_ACPI_TABLES
++	select INTEL_GMA_HAVE_VBT
+ 	select INTEL_INT15
+ 	select MAINBOARD_HAS_LIBGFXINIT
+ 	select GFX_GMA_PANEL_1_ON_LVDS
+@@ -29,6 +30,9 @@ config VGA_BIOS_ID
+ 	string
+ 	default "8086,0116"
+ 
++config INTEL_GMA_VBT_FILE
++	default "src/mainboard/asustek_computer/k53sc/data.vbt"
++
+ config DRAM_RESET_GATE_GPIO
+ 	int
+ 	default 60
+-- 
+2.55.0
+

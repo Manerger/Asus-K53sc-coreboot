@@ -1,0 +1,58 @@
+## SPDX-License-Identifier: GPL-2.0-only
+
+if BOARD_ASUSTEK_COMPUTER_K53SC
+
+config BOARD_SPECIFIC_OPTIONS
+	def_bool y
+	select AZALIA_USE_LEGACY_VERB_TABLE
+	select BOARD_ROMSIZE_KB_4096
+	select EC_ACPI
+	select HAVE_ACPI_RESUME
+	select HAVE_ACPI_TABLES
+	select INTEL_GMA_HAVE_VBT
+	select INTEL_INT15
+	select MAINBOARD_HAS_LIBGFXINIT
+	select GFX_GMA_PANEL_1_ON_LVDS
+	select NORTHBRIDGE_INTEL_SANDYBRIDGE
+	select ONBOARD_VGA_IS_PRIMARY
+	select SERIRQ_CONTINUOUS_MODE
+	select SOUTHBRIDGE_INTEL_BD82X6X
+	select SYSTEM_TYPE_LAPTOP
+	select USE_NATIVE_RAMINIT
+
+config MAINBOARD_DIR
+	string
+	default "asustek_computer/k53sc"
+
+config MAINBOARD_PART_NUMBER
+	string
+	default "K53SC"
+
+config VGA_BIOS_ID
+	default "10de,1051"
+
+config VGA_BIOS_FILE
+	default "src/mainboard/asustek_computer/k53sc/dgpu-vbios.rom"
+
+config INTEL_GMA_VBT_FILE
+	default "src/mainboard/asustek_computer/k53sc/data.vbt"
+
+config DRAM_RESET_GATE_GPIO
+	int
+	default 60
+
+config USBDEBUG_HCD_INDEX
+	int
+	default 2
+
+config SMM_MODULE_STACK_SIZE
+	hex
+	default 0x1000 if SPI_FLASH_SMM
+
+config SMMSTORE_SIZE
+	hex
+	default 0x40000
+
+config FMDFILE
+	default "src/mainboard/asustek_computer/k53sc/k53sc.fmd"
+endif

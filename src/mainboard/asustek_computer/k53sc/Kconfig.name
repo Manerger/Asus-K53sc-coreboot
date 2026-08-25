@@ -1,0 +1,4 @@
+## SPDX-License-Identifier: GPL-2.0-only
+
+config BOARD_ASUSTEK_COMPUTER_K53SC
+	bool "K53SC"

@@ -1,0 +1,74 @@
+From 53995e321cf318fa6c5fd6da8c9d72f1af713499 Mon Sep 17 00:00:00 2001
+From: manerger <filidog82@gmail.com>
+Date: Mon, 24 Aug 2026 22:19:44 +0200
+Subject: [PATCH 17/21] mb/asustek_computer/k53sc: Add an SMMSTORE region for
+ UEFI payloads
+
+Carve SMMSTORE out of BIOS_UNUSED so a UEFI payload has somewhere to keep
+its variables, and raise the SMM stack so the SPI driver fits in it.
+
+The FMD change is deliberately minimal: only the unused region is
+touched, and RW_MRC_CACHE, VENDOR_DATA, FMAP and COREBOOT all keep their
+existing offsets. An image built before this change can still be written
+to the COREBOOT region of a chip carrying the new layout, because every
+region the firmware actually uses is where it was.
+
+SMM_MODULE_STACK_SIZE needs raising because SMMSTORE selects
+SPI_FLASH_SMM, which links the SPI driver into SMM. The default 0x400 is
+not enough: with the SPI driver present the handler overruns its stack,
+trips the canary check in smm_module_handler.c and dies at the first SMI,
+which on this board looks like a brick - backlight on, black screen, no
+payload, no OS. That cost two external recoveries in August. 0x1000 is
+enough.
+
+SMMSTORE_SIZE is set to 0x40000 rather than the 0x80000 default, which
+does not fit here and is far more than the 64K UEFI requires.
+
+Tested on an ASUS K53SC with an i7-3840QM, with edk2 UefiPayloadPkg as
+the payload: the machine boots to UEFI, /sys/firmware/efi is present,
+26 efivars are exposed and efibootmgr lists working boot entries, so the
+store is live. Internal flashing still works with SPI_FLASH_SMM enabled -
+verified by writing the COREBOOT region from the running system.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ src/mainboard/asustek_computer/k53sc/Kconfig   | 8 ++++++++
+ src/mainboard/asustek_computer/k53sc/k53sc.fmd | 3 ++-
+ 2 files changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/src/mainboard/asustek_computer/k53sc/Kconfig b/src/mainboard/asustek_computer/k53sc/Kconfig
+index 9dd1424c64..99e1584f83 100644
+--- a/src/mainboard/asustek_computer/k53sc/Kconfig
++++ b/src/mainboard/asustek_computer/k53sc/Kconfig
+@@ -42,6 +42,14 @@ config USBDEBUG_HCD_INDEX
+ 	int
+ 	default 2
+ 
++config SMM_MODULE_STACK_SIZE
++	hex
++	default 0x1000 if SPI_FLASH_SMM
++
++config SMMSTORE_SIZE
++	hex
++	default 0x40000
++
+ config FMDFILE
+ 	default "src/mainboard/asustek_computer/k53sc/k53sc.fmd"
+ endif
+diff --git a/src/mainboard/asustek_computer/k53sc/k53sc.fmd b/src/mainboard/asustek_computer/k53sc/k53sc.fmd
+index 60c3e33cca..a2a76d25ab 100644
+--- a/src/mainboard/asustek_computer/k53sc/k53sc.fmd
++++ b/src/mainboard/asustek_computer/k53sc/k53sc.fmd
+@@ -4,7 +4,8 @@ FLASH 4M {
+ 
+ 	SI_BIOS@0x180000 0x280000 {
+ 		RW_MRC_CACHE(PRESERVE)@0x0 64K
+-		BIOS_UNUSED@0x10000 0x70000
++		SMMSTORE(PRESERVE)@0x10000 0x40000
++		BIOS_UNUSED@0x50000 0x30000
+ 		VENDOR_DATA(PRESERVE)@0x80000 64K
+ 		FMAP@0x90000 4K
+ 		COREBOOT(CBFS)@0x91000 0x1ef000
+-- 
+2.55.0
+

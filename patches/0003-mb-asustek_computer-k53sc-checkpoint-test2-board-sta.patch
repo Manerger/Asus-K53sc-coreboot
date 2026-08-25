@@ -1,0 +1,24 @@
+From b601c29fb021ae8f6820ea2b7d10f680302f00a3 Mon Sep 17 00:00:00 2001
+From: manerger <filidog82@gmail.com>
+Date: Thu, 6 Aug 2026 10:17:13 +0200
+Subject: [PATCH 03/21] mb/asustek_computer/k53sc: checkpoint test2 board state
+
+---
+ src/mainboard/asustek_computer/k53sc/Kconfig | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/mainboard/asustek_computer/k53sc/Kconfig b/src/mainboard/asustek_computer/k53sc/Kconfig
+index c647c98fc7..eee799750b 100644
+--- a/src/mainboard/asustek_computer/k53sc/Kconfig
++++ b/src/mainboard/asustek_computer/k53sc/Kconfig
+@@ -10,6 +10,7 @@ config BOARD_SPECIFIC_OPTIONS
+ 	select HAVE_ACPI_TABLES
+ 	select INTEL_INT15
+ 	select MAINBOARD_HAS_LIBGFXINIT
++	select GFX_GMA_PANEL_1_ON_LVDS
+ 	select NORTHBRIDGE_INTEL_SANDYBRIDGE
+ 	select SERIRQ_CONTINUOUS_MODE
+ 	select SOUTHBRIDGE_INTEL_BD82X6X
+-- 
+2.55.0
+

@@ -1,0 +1,50 @@
+From 5c82866644343fc591e7af672ac1e7e8a9929905 Mon Sep 17 00:00:00 2001
+From: manerger <filidog82@gmail.com>
+Date: Mon, 24 Aug 2026 17:52:29 +0200
+Subject: [PATCH 15/21] mb/asustek_computer/k53sc: Enable suspend to RAM
+
+The board did not support S3 at all. Without HAVE_ACPI_RESUME,
+sleepstates.asl leaves SSFG at 0x09 so _S3 is never declared, and the OS
+reported only "(supports S0 S1 S4 S5)". Suspending gave S1 or a software
+freeze, never suspend to RAM.
+
+Select HAVE_ACPI_RESUME, as the other Sandy Bridge laptops with this
+southbridge do. Native raminit already implements the resume path.
+
+Tested on an ASUS K53SC with an i7-3840QM: the OS now reports
+"(supports S0 S1 S3 S4 S5)", and a suspend/resume cycle completes with
+the session intact:
+
+  PM: suspend entry (deep)
+  ACPI: PM: Preparing to enter system sleep state S3
+  ACPI: PM: Restoring platform NVS memory
+  PM: suspend exit
+
+Note the fan runs at full speed while suspended and stays there after
+resume. That is the EC failing to track the host power state, the same
+behaviour seen when the board refuses to drop its rails at S5, and it is
+not caused by this change - the fan is under EC control and the host is
+not running while suspended. Stock's OemSxSmm S3 handlers only drive
+GPIOs for the suspend LED (GPO_BLINK and GP_LVL), so they do not address
+it either.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ src/mainboard/asustek_computer/k53sc/Kconfig | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/mainboard/asustek_computer/k53sc/Kconfig b/src/mainboard/asustek_computer/k53sc/Kconfig
+index f321daf770..9dd1424c64 100644
+--- a/src/mainboard/asustek_computer/k53sc/Kconfig
++++ b/src/mainboard/asustek_computer/k53sc/Kconfig
+@@ -7,6 +7,7 @@ config BOARD_SPECIFIC_OPTIONS
+ 	select AZALIA_USE_LEGACY_VERB_TABLE
+ 	select BOARD_ROMSIZE_KB_4096
+ 	select EC_ACPI
++	select HAVE_ACPI_RESUME
+ 	select HAVE_ACPI_TABLES
+ 	select INTEL_GMA_HAVE_VBT
+ 	select INTEL_INT15
+-- 
+2.55.0
+

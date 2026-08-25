@@ -1,0 +1,513 @@
+From 7e25e5d4dc03a6133a08a6f8685b3c64f7d3224e Mon Sep 17 00:00:00 2001
+From: manerger <filidog82@gmail.com>
+Date: Tue, 25 Aug 2026 10:06:46 +0200
+Subject: [PATCH 19/21] mb/asustek_computer/k53sc: Consolidate the EC access
+ primitives
+
+The drain, wait-for-IBF and write helpers had been copied into three
+files as each stage grew a need for them: early_init.c for the Tjmax
+handoff, smihandler.c for the ACPI mode SMI, and mainboard.c for the S3
+resume path. Move them into ec.c, build it for bootblock, romstage,
+ramstage and smm, and expose the three operations the board actually
+performs through ec.h.
+
+This also settles an inconsistency between the copies: early_init.c's
+wait loop issued the I/O delay before testing the status bit, while the
+other two tested first. Stock reads, tests, then delays, so the shared
+version does that.
+
+The derivation of the ACPI mode sequences now sits in ec.c beside the
+command bytes rather than in a comment in the SMI handler.
+
+No functional change intended. Tested on an ASUS K53SC with an
+i7-3840QM: the machine boots, the volume keys work, and they still work
+after a suspend and resume, which exercises the SMM and ramstage callers
+respectively. The bootblock caller runs on every boot.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .../asustek_computer/k53sc/Makefile.mk        |   4 +
+ .../asustek_computer/k53sc/early_init.c       |  69 ++---------
+ src/mainboard/asustek_computer/k53sc/ec.c     | 109 ++++++++++++++++++
+ src/mainboard/asustek_computer/k53sc/ec.h     |  40 +++++++
+ .../asustek_computer/k53sc/mainboard.c        |  68 +----------
+ .../asustek_computer/k53sc/smihandler.c       |  80 ++-----------
+ 6 files changed, 176 insertions(+), 194 deletions(-)
+ create mode 100644 src/mainboard/asustek_computer/k53sc/ec.c
+ create mode 100644 src/mainboard/asustek_computer/k53sc/ec.h
+
+diff --git a/src/mainboard/asustek_computer/k53sc/Makefile.mk b/src/mainboard/asustek_computer/k53sc/Makefile.mk
+index 393ef7f74a..9e7e463375 100644
+--- a/src/mainboard/asustek_computer/k53sc/Makefile.mk
++++ b/src/mainboard/asustek_computer/k53sc/Makefile.mk
+@@ -1,8 +1,12 @@
+ ## SPDX-License-Identifier: GPL-2.0-only
+ 
+ bootblock-y += early_init.c
++bootblock-y += ec.c
+ bootblock-y += gpio.c
+ romstage-y += early_init.c
++romstage-y += ec.c
+ romstage-y += gpio.c
++ramstage-y += ec.c
+ ramstage-$(CONFIG_MAINBOARD_USE_LIBGFXINIT) += gma-mainboard.ads
++smm-y += ec.c
+ smm-y += smihandler.c
+diff --git a/src/mainboard/asustek_computer/k53sc/early_init.c b/src/mainboard/asustek_computer/k53sc/early_init.c
+index 31ea618009..83f34a35fc 100644
+--- a/src/mainboard/asustek_computer/k53sc/early_init.c
++++ b/src/mainboard/asustek_computer/k53sc/early_init.c
+@@ -1,6 +1,5 @@
+ /* SPDX-License-Identifier: GPL-2.0-only */
+ 
+-#include <arch/io.h>
+ #include <bootblock_common.h>
+ #include <cpu/intel/model_206ax/model_206ax.h>
+ #include <cpu/x86/msr.h>
+@@ -8,66 +7,12 @@
+ #include <southbridge/intel/bd82x6x/pch.h>
+ #include <southbridge/intel/common/lpc_def.h>
+ 
+-/*
+- * The IT8572E exposes a configuration index/data pair on LPC. The stock
+- * firmware's ITEPEI module uses it to hand the CPU's thermal control
+- * temperature to the EC on every boot, before anything else touches the EC.
+- */
+-#define K53SC_EC_STATUS		0x258	/* ECIC in the stock DSDT */
+-#define K53SC_EC_DATA		0x257	/* ECID in the stock DSDT */
+-#define K53SC_EC_IBF		(1 << 1)
+-
+-#define K53SC_EC_UNLOCK		0xff
+-#define K53SC_EC_CMD_WRITE	0x95
+-#define K53SC_EC_IDX_TJMAX	0x1a
+-
+-/* Stock polls the status port using an I/O read to 0xed as the delay. */
+-#define K53SC_IO_DELAY_PORT	0xed
+-
+-static void k53sc_ec_wait_ibf(void)
+-{
+-	unsigned int i;
+-
+-	for (i = 0; i < 0x10000; i++) {
+-		outb(0, K53SC_IO_DELAY_PORT);
+-		if (!(inb(K53SC_EC_STATUS) & K53SC_EC_IBF))
+-			return;
+-	}
+-}
+-
+-static void k53sc_ec_put(uint16_t port, uint8_t val)
+-{
+-	k53sc_ec_wait_ibf();
+-	outb(val, port);
+-}
+-
+-/*
+- * Replicate the stock ITEPEI Tjmax handoff.
+- *
+- * Without it the EC falls back to built-in thermal trip points (103/105 C
+- * observed) instead of ones derived from the CPU's actual thermal control
+- * temperature; stock, which performs this, ends up at 88/90 C on a part whose
+- * Tjmax is 100 C.
+- *
+- * Every port, command and index here is transcribed from the stock module.
+- */
+-static void k53sc_ec_program_tjmax(void)
+-{
+-	msr_t msr = rdmsr(MSR_TEMPERATURE_TARGET);
+-	uint8_t tjmax = (msr.lo >> 16) & 0xff;
+-
+-	if (!tjmax)
+-		return;
+-
+-	k53sc_ec_put(K53SC_EC_STATUS, K53SC_EC_UNLOCK);
+-	k53sc_ec_put(K53SC_EC_STATUS, K53SC_EC_CMD_WRITE);
+-	k53sc_ec_put(K53SC_EC_DATA, K53SC_EC_IDX_TJMAX);
+-	k53sc_ec_put(K53SC_EC_DATA, tjmax);
+-	k53sc_ec_wait_ibf();
+-}
++#include "ec.h"
+ 
+ void bootblock_mainboard_early_init(void)
+ {
++	msr_t msr;
++
+ 	pci_write_config16(PCI_DEV(0, 0x1f, 0), 0x82, 0x1c0f);
+ 	pci_write_config16(PCI_DEV(0, 0x1f, 0), 0x80, 0x0000);
+ 
+@@ -79,5 +24,11 @@ void bootblock_mainboard_early_init(void)
+ 	 */
+ 	pci_write_config32(PCI_DEV(0, 0x1f, 0), LPC_GEN3_DEC, 0x002c0251);
+ 
+-	k53sc_ec_program_tjmax();
++	/*
++	 * Stock's ITEPEI module hands the CPU's thermal control
++	 * temperature to the EC on every boot, before anything else
++	 * touches it.
++	 */
++	msr = rdmsr(MSR_TEMPERATURE_TARGET);
++	k53sc_ec_program_tjmax((msr.lo >> 16) & 0xff);
+ }
+diff --git a/src/mainboard/asustek_computer/k53sc/ec.c b/src/mainboard/asustek_computer/k53sc/ec.c
+new file mode 100644
+index 0000000000..4bcfa4ca1e
+--- /dev/null
++++ b/src/mainboard/asustek_computer/k53sc/ec.c
+@@ -0,0 +1,109 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++#include <arch/io.h>
++#include <stdint.h>
++
++#include "ec.h"
++
++#define K53SC_EC_STATUS		0x258	/* ECIC in the stock DSDT */
++#define K53SC_EC_DATA		0x257	/* ECID in the stock DSDT */
++
++#define K53SC_EC_OBF		(1 << 0)
++#define K53SC_EC_IBF		(1 << 1)
++
++/* Stock polls the status port using an I/O read to 0xed as the delay. */
++#define K53SC_IO_DELAY_PORT	0xed
++
++/* Bound every poll, so an unresponsive EC cannot stall SMM indefinitely.
++ * Stock uses the same limit.
++ */
++#define K53SC_EC_TIMEOUT	0x10000
++
++#define K53SC_EC_UNLOCK		0xff
++#define K53SC_EC_CMD_ACPI	0xca
++#define K53SC_EC_CMD_WRITE	0x95
++
++#define K53SC_EC_ACPI_ENTER	0x16
++#define K53SC_EC_ACPI_EXIT	0x17
++
++#define K53SC_EC_IDX_TJMAX	0x1a
++
++/* Discard any stale output the EC left behind. */
++static void k53sc_ec_drain(void)
++{
++	unsigned int i;
++
++	for (i = 0; i < K53SC_EC_TIMEOUT; i++) {
++		if (!(inb(K53SC_EC_STATUS) & K53SC_EC_OBF))
++			return;
++		(void)inb(K53SC_EC_DATA);
++		outb(0, K53SC_IO_DELAY_PORT);
++	}
++}
++
++static void k53sc_ec_wait_ibf(void)
++{
++	unsigned int i;
++
++	for (i = 0; i < K53SC_EC_TIMEOUT; i++) {
++		if (!(inb(K53SC_EC_STATUS) & K53SC_EC_IBF))
++			return;
++		outb(0, K53SC_IO_DELAY_PORT);
++	}
++}
++
++static void k53sc_ec_put(uint16_t port, uint8_t val)
++{
++	k53sc_ec_wait_ibf();
++	outb(val, port);
++}
++
++/*
++ * Tell the EC the host has entered or left ACPI mode.
++ *
++ * Stock's AcpiModeEnable module registers software SMI handlers for the FADT
++ * ACPI_ENABLE/ACPI_DISABLE values and, after the usual PM register work, walks
++ * a list of registered callbacks. ECSMI registers into that list, and its
++ * callbacks call the ECProtocol SMM interface (GUID
++ * ac44520d-0169-4966-b743-4f6ceaf2598e, installed at 0x140001ef0 with size
++ * 0x130) at entries +0x40 and +0x48. Those two entries are these sequences:
++ *
++ *   +0x40  drain; 0xff -> 0x258; 0xca -> 0x258; 0x16 -> 0x257
++ *   +0x48  drain; 0xff -> 0x258; 0xca -> 0x258; 0x17 -> 0x257
++ *
++ * coreboot's southbridge_smi_apmc() handles the same two APMC values by
++ * setting and clearing SCI_EN and never touches the EC, so without this the
++ * EC is never told the host has entered ACPI mode: Fn hotkeys produce only
++ * plain AT scancodes, nothing reaches the ACPI/WMI path and the GPE 0x1B
++ * counter does not move on a key press.
++ */
++static void k53sc_ec_acpi_mode(uint8_t mode)
++{
++	k53sc_ec_drain();
++	k53sc_ec_put(K53SC_EC_STATUS, K53SC_EC_UNLOCK);
++	k53sc_ec_put(K53SC_EC_STATUS, K53SC_EC_CMD_ACPI);
++	k53sc_ec_put(K53SC_EC_DATA, mode);
++	k53sc_ec_wait_ibf();
++}
++
++void k53sc_ec_enter_acpi_mode(void)
++{
++	k53sc_ec_acpi_mode(K53SC_EC_ACPI_ENTER);
++}
++
++void k53sc_ec_exit_acpi_mode(void)
++{
++	k53sc_ec_acpi_mode(K53SC_EC_ACPI_EXIT);
++}
++
++void k53sc_ec_program_tjmax(uint8_t tjmax)
++{
++	if (!tjmax)
++		return;
++
++	k53sc_ec_put(K53SC_EC_STATUS, K53SC_EC_UNLOCK);
++	k53sc_ec_put(K53SC_EC_STATUS, K53SC_EC_CMD_WRITE);
++	k53sc_ec_put(K53SC_EC_DATA, K53SC_EC_IDX_TJMAX);
++	k53sc_ec_put(K53SC_EC_DATA, tjmax);
++	k53sc_ec_wait_ibf();
++}
+diff --git a/src/mainboard/asustek_computer/k53sc/ec.h b/src/mainboard/asustek_computer/k53sc/ec.h
+new file mode 100644
+index 0000000000..56325d587e
+--- /dev/null
++++ b/src/mainboard/asustek_computer/k53sc/ec.h
+@@ -0,0 +1,40 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++#ifndef MAINBOARD_ASUSTEK_COMPUTER_K53SC_EC_H
++#define MAINBOARD_ASUSTEK_COMPUTER_K53SC_EC_H
++
++#include <stdint.h>
++
++/*
++ * Access to the IT8572E's configuration index/data pair on LPC.
++ *
++ * This is not the ACPI EC interface at 0x62/0x66 that the OS driver owns; it
++ * is the pair the stock firmware uses from PEI and SMM, at 0x257/0x258, and
++ * it stays usable while the OS is running. Every command and operand issued
++ * here is transcribed from a stock module rather than invented.
++ *
++ * The generic decode range that routes 0x250-0x25f to LPC is programmed in
++ * bootblock_mainboard_early_init(), so these are usable from bootblock
++ * onwards.
++ */
++
++/* Tell the EC the host has entered or left ACPI mode.
++ *
++ * Until it is told, the EC delivers no ACPI events at all: hotkeys produce
++ * only plain AT scancodes and the GPE never fires. Stock issues this from its
++ * ACPI_ENABLE/ACPI_DISABLE software SMI handler, by way of the ECProtocol SMM
++ * interface (GUID ac44520d-0169-4966-b743-4f6ceaf2598e) entries +0x40/+0x48.
++ *
++ * Must be issued from firmware, not userspace: the kernel's ACPI EC driver
++ * owns the same controller and racing with it desynchronises the EC.
++ */
++void k53sc_ec_enter_acpi_mode(void);
++void k53sc_ec_exit_acpi_mode(void);
++
++/* Hand the CPU's thermal control temperature to the EC, as stock's ITEPEI
++ * module does on every boot. Note this does not by itself change the EC's
++ * thermal trip points; see the board notes.
++ */
++void k53sc_ec_program_tjmax(uint8_t tjmax);
++
++#endif /* MAINBOARD_ASUSTEK_COMPUTER_K53SC_EC_H */
+diff --git a/src/mainboard/asustek_computer/k53sc/mainboard.c b/src/mainboard/asustek_computer/k53sc/mainboard.c
+index ce754a7837..6aadaaae94 100644
+--- a/src/mainboard/asustek_computer/k53sc/mainboard.c
++++ b/src/mainboard/asustek_computer/k53sc/mainboard.c
+@@ -1,73 +1,12 @@
+ /* SPDX-License-Identifier: GPL-2.0-only */
+ 
+ #include <acpi/acpi.h>
+-#include <arch/io.h>
+ #include <device/device.h>
+ #include <drivers/intel/gma/int15.h>
+ #include <pc80/keyboard.h>
+ 
++#include "ec.h"
+ 
+-/*
+- * Put the EC back into ACPI mode after resume from S3.
+- *
+- * The EC leaves ACPI mode across a suspend: after a resume the hotkeys stop
+- * working, because the EC no longer raises the queries that deliver them.
+- * The OS does not repeat the ACPI_ENABLE handshake that mainboard_smi_apmc()
+- * hooks, so nothing puts the EC back.
+- *
+- * Re-issue the sequence stock uses at ACPI enable, transcribed from the
+- * ECProtocol SMM interface entry +0x40 (see smihandler.c for the full
+- * derivation). Bounded polling, as stock does.
+- *
+- * TODO: these primitives now exist in three stages. Once this is confirmed,
+- * fold them into a shared ec.c for bootblock, romstage, ramstage and smm.
+- */
+-#define K53SC_EC_STATUS		0x258
+-#define K53SC_EC_DATA		0x257
+-#define K53SC_EC_OBF		(1 << 0)
+-#define K53SC_EC_IBF		(1 << 1)
+-#define K53SC_IO_DELAY_PORT	0xed
+-#define K53SC_EC_UNLOCK		0xff
+-#define K53SC_EC_CMD_ACPI	0xca
+-#define K53SC_EC_ACPI_ENTER	0x16
+-
+-static void k53sc_ec_drain(void)
+-{
+-	unsigned int i;
+-
+-	for (i = 0; i < 0x10000; i++) {
+-		if (!(inb(K53SC_EC_STATUS) & K53SC_EC_OBF))
+-			return;
+-		(void)inb(K53SC_EC_DATA);
+-		outb(0, K53SC_IO_DELAY_PORT);
+-	}
+-}
+-
+-static void k53sc_ec_wait_ibf(void)
+-{
+-	unsigned int i;
+-
+-	for (i = 0; i < 0x10000; i++) {
+-		if (!(inb(K53SC_EC_STATUS) & K53SC_EC_IBF))
+-			return;
+-		outb(0, K53SC_IO_DELAY_PORT);
+-	}
+-}
+-
+-static void k53sc_ec_put(uint16_t port, uint8_t val)
+-{
+-	k53sc_ec_wait_ibf();
+-	outb(val, port);
+-}
+-
+-static void k53sc_ec_enter_acpi_mode(void)
+-{
+-	k53sc_ec_drain();
+-	k53sc_ec_put(K53SC_EC_STATUS, K53SC_EC_UNLOCK);
+-	k53sc_ec_put(K53SC_EC_STATUS, K53SC_EC_CMD_ACPI);
+-	k53sc_ec_put(K53SC_EC_DATA, K53SC_EC_ACPI_ENTER);
+-	k53sc_ec_wait_ibf();
+-}
+ 
+ static void mainboard_init(struct device *dev)
+ {
+@@ -78,6 +17,11 @@ static void mainboard_init(struct device *dev)
+ 	 */
+ 	pc_keyboard_init(NO_AUX_DEVICE);
+ 
++	/*
++	 * The EC leaves ACPI mode across a suspend and the OS does not
++	 * repeat the ACPI_ENABLE handshake, so nothing puts it back and
++	 * the hotkeys stay dead until a reboot.
++	 */
+ 	if (acpi_is_wakeup_s3())
+ 		k53sc_ec_enter_acpi_mode();
+ }
+diff --git a/src/mainboard/asustek_computer/k53sc/smihandler.c b/src/mainboard/asustek_computer/k53sc/smihandler.c
+index 311867ced9..5f9169a476 100755
+--- a/src/mainboard/asustek_computer/k53sc/smihandler.c
++++ b/src/mainboard/asustek_computer/k53sc/smihandler.c
+@@ -1,9 +1,10 @@
+ /* SPDX-License-Identifier: GPL-2.0-only */
+ 
+-#include <arch/io.h>
+ #include <console/console.h>
+ #include <cpu/x86/smm.h>
+ 
++#include "ec.h"
++
+ /*
+  * K53SC GPI1 SMI experiment.
+  *
+@@ -38,87 +39,20 @@ void mainboard_smi_gpi(u32 gpi_sts)
+ /*
+  * Put the EC into ACPI mode when the OS enables ACPI, as stock does.
+  *
+- * Stock's AcpiModeEnable module registers software SMI handlers for the FADT
+- * ACPI_ENABLE/ACPI_DISABLE values and, after the usual PM register work, walks
+- * a list of registered callbacks. ECSMI registers into that list, and its
+- * callbacks call the ECProtocol SMM interface (GUID
+- * ac44520d-0169-4966-b743-4f6ceaf2598e, installed at 0x140001ef0 with size
+- * 0x130) at entries +0x40 and +0x48. Those two entries are these sequences:
+- *
+- *   +0x40  drain; 0xff -> 0x258; 0xca -> 0x258; 0x16 -> 0x257
+- *   +0x48  drain; 0xff -> 0x258; 0xca -> 0x258; 0x17 -> 0x257
+- *
+- * coreboot's southbridge_smi_apmc() handles the same two APMC values by
+- * setting and clearing SCI_EN and never touches the EC, so under coreboot the
+- * EC is never told the host has entered ACPI mode. Fn hotkeys produce only
+- * plain AT scancodes, nothing reaches the ACPI/WMI path and the GPE 0x1B
+- * counter does not move on a key press.
+- *
+- * Nothing here is invented: every port, command and data byte is transcribed
+- * from the stock module, and the wait loops mirror its bounded polling so an
+- * unresponsive EC cannot stall SMM indefinitely.
++ * coreboot's southbridge_smi_apmc() handles ACPI_ENABLE/ACPI_DISABLE by
++ * setting and clearing SCI_EN and never touches the EC. See ec.c for the
++ * sequences and where they come from.
+  */
+-
+-#define K53SC_EC_STATUS		0x258	/* ECIC in the stock DSDT */
+-#define K53SC_EC_DATA		0x257	/* ECID in the stock DSDT */
+-#define K53SC_EC_OBF		(1 << 0)
+-#define K53SC_EC_IBF		(1 << 1)
+-#define K53SC_IO_DELAY_PORT	0xed
+-
+-#define K53SC_EC_UNLOCK		0xff
+-#define K53SC_EC_CMD_ACPI	0xca
+-#define K53SC_EC_ACPI_ENTER	0x16
+-#define K53SC_EC_ACPI_EXIT	0x17
+-
+-/* Discard any stale output, mirroring the stock drain. */
+-static void k53sc_ec_drain(void)
+-{
+-	unsigned int i;
+-
+-	for (i = 0; i < 0x10000; i++) {
+-		if (!(inb(K53SC_EC_STATUS) & K53SC_EC_OBF))
+-			return;
+-		(void)inb(K53SC_EC_DATA);
+-		outb(0, K53SC_IO_DELAY_PORT);
+-	}
+-}
+-
+-static void k53sc_ec_wait_ibf(void)
+-{
+-	unsigned int i;
+-
+-	for (i = 0; i < 0x10000; i++) {
+-		if (!(inb(K53SC_EC_STATUS) & K53SC_EC_IBF))
+-			return;
+-		outb(0, K53SC_IO_DELAY_PORT);
+-	}
+-}
+-
+-static void k53sc_ec_put(uint16_t port, uint8_t val)
+-{
+-	k53sc_ec_wait_ibf();
+-	outb(val, port);
+-}
+-
+-static void k53sc_ec_acpi_mode(uint8_t mode)
+-{
+-	k53sc_ec_drain();
+-	k53sc_ec_put(K53SC_EC_STATUS, K53SC_EC_UNLOCK);
+-	k53sc_ec_put(K53SC_EC_STATUS, K53SC_EC_CMD_ACPI);
+-	k53sc_ec_put(K53SC_EC_DATA, mode);
+-	k53sc_ec_wait_ibf();
+-}
+-
+ int mainboard_smi_apmc(u8 data)
+ {
+ 	switch (data) {
+ 	case APM_CNT_ACPI_ENABLE:
+ 		printk(BIOS_DEBUG, "K53SC SMI: EC to ACPI mode\n");
+-		k53sc_ec_acpi_mode(K53SC_EC_ACPI_ENTER);
++		k53sc_ec_enter_acpi_mode();
+ 		break;
+ 	case APM_CNT_ACPI_DISABLE:
+ 		printk(BIOS_DEBUG, "K53SC SMI: EC out of ACPI mode\n");
+-		k53sc_ec_acpi_mode(K53SC_EC_ACPI_EXIT);
++		k53sc_ec_exit_acpi_mode();
+ 		break;
+ 	}
+ 
+-- 
+2.55.0
+

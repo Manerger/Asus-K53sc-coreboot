@@ -1,0 +1,222 @@
+From 177f19741a47d3dbc7c8a033393256e6ff537c2f Mon Sep 17 00:00:00 2001
+From: manerger <filidog82@gmail.com>
+Date: Wed, 12 Aug 2026 19:11:05 +0200
+Subject: [PATCH 05/21] mb/asustek_computer/k53sc: Add battery and AC adapter
+ ACPI
+
+The board exposed no power supply devices at all: /sys/class/power_supply
+was empty, so neither battery charge nor AC presence was visible to the
+OS.
+
+The EC carries this data in an indexed window at I/O 0x25a/0x25b, which
+the stock firmware declares identically. Add the same OperationRegion and
+IndexField, plus BAT0 (PNP0C0A) and ADP0 (ACPI0003) built on it.
+
+The window is SystemIO rather than EmbeddedControl, so it does not depend
+on the OS embedded-controller driver and the methods deliberately do not
+gate on ECAV().
+
+Field semantics were confirmed on hardware by sampling across an AC
+unplug/replug cycle:
+
+  EPWS bit0  AC present          (0x03 -> 0x02 -> 0x03)
+  EB0S bit0  discharging, bit1 charging; these already match the ACPI
+             _BST state bits of the same number
+  B0CC       present rate, signed mA, negative when discharging, so it
+             is converted to an unsigned magnitude for _BST
+
+Battery presence is derived from B0FC reporting a sane capacity rather
+than from a status bit, because the battery-absent case was never
+observed and the presence bits are therefore unconfirmed.
+
+Verified on an i5-3230M: BAT0 reports 4400 mAh design and last-full,
+11.1 V design, 12.4 V present, and ADP0 tracks the adapter.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .../asustek_computer/k53sc/acpi/ec.asl        | 168 +++++++++++++++++-
+ 1 file changed, 167 insertions(+), 1 deletion(-)
+
+diff --git a/src/mainboard/asustek_computer/k53sc/acpi/ec.asl b/src/mainboard/asustek_computer/k53sc/acpi/ec.asl
+index 5f30ed2026..2612448fd5 100644
+--- a/src/mainboard/asustek_computer/k53sc/acpi/ec.asl
++++ b/src/mainboard/asustek_computer/k53sc/acpi/ec.asl
+@@ -39,8 +39,174 @@ Device (EC0)
+ 	}
+ 
+ 	/*
+-	 * Deliberately no register fields or _Qxx methods yet.
++	 * Deliberately no ERAM register fields or _Qxx methods yet.
+ 	 * Those will be reconstructed from observed ASUS behavior.
+ 	 */
+ 	OperationRegion (ERAM, EmbeddedControl, 0x00, 0xFF)
++
++	/*
++	 * ASUS indexed battery/thermal window.
++	 *
++	 * The stock firmware declares the same index/data pair at 0x25a/0x25b.
++	 * LPC generic decode range 3 (devicetree "gen3_dec" = 0x002c0251, base
++	 * 0x250 / mask 0x2c) routes 0x250-0x25f to LPC, so this is reachable.
++	 *
++	 * This is SystemIO rather than EmbeddedControl, so it does not depend
++	 * on the OS embedded-controller driver being loaded.
++	 *
++	 * Field offsets and semantics were confirmed on hardware by sampling
++	 * across an AC unplug/replug cycle.
++	 */
++	OperationRegion (BRAM, SystemIO, 0x025A, 0x02)
++	Field (BRAM, ByteAcc, Lock, Preserve)
++	{
++		BRAI,	8,
++		BRAD,	8
++	}
++
++	IndexField (BRAI, BRAD, ByteAcc, NoLock, Preserve)
++	{
++		Offset (0x90),
++		EPWS,	8,	/* bit0: AC present, bit1: battery present */
++		EB0S,	8,	/* bit0: discharging, bit1: charging, bit4: present */
++		Offset (0x98),
++		ECPU,	8,	/* CPU temperature, degrees C */
++		ECRT,	8,	/* critical trip point, degrees C */
++		Offset (0xA0),
++		B0VL,	16,	/* present voltage, mV */
++		B0RC,	16,	/* remaining capacity, mAh */
++		B0FC,	16,	/* last full charge capacity, mAh */
++		B0MD,	16,
++		B0ST,	16,
++		B0CC,	16,	/* present rate, signed mA (negative = discharging) */
++		B0DC,	16,	/* design capacity, mAh */
++		B0DV,	16	/* design voltage, mV */
++	}
++
++	Device (BAT0)
++	{
++		Name (_HID, EisaId ("PNP0C0A"))
++		Name (_UID, 0)
++		Name (_PCL, Package () { \_SB })
++
++		/*
++		 * Presence is derived from the reported last-full-charge
++		 * capacity rather than a status bit: a battery that reports a
++		 * sane capacity is present by construction, and this cannot be
++		 * fooled by a status bit whose meaning we have not confirmed
++		 * for the battery-absent case.
++		 */
++		Method (_STA, 0, NotSerialized)
++		{
++			Local0 = \_SB.PCI0.LPCB.EC0.B0FC
++			If ((Local0 == 0x00) || (Local0 == 0xFFFF))
++			{
++				Return (0x0F)
++			}
++
++			Return (0x1F)
++		}
++
++		Method (_BIF, 0, Serialized)
++		{
++			Name (BPKG, Package (0x0D)
++			{
++				0x01,		/* power unit: mAh / mA */
++				0xFFFFFFFF,	/* design capacity */
++				0xFFFFFFFF,	/* last full charge capacity */
++				0x01,		/* battery technology: rechargeable */
++				0xFFFFFFFF,	/* design voltage */
++				0x00,		/* design capacity of warning */
++				0x00,		/* design capacity of low */
++				0x01,		/* capacity granularity 1 */
++				0x01,		/* capacity granularity 2 */
++				"K53SC",	/* model number */
++				"",		/* serial number */
++				"LION",		/* battery type */
++				"ASUS"		/* OEM information */
++			})
++
++			Local0 = \_SB.PCI0.LPCB.EC0.B0DC
++			If ((Local0 != 0xFFFF))
++			{
++				BPKG [0x01] = Local0
++			}
++
++			Local1 = \_SB.PCI0.LPCB.EC0.B0FC
++			If ((Local1 != 0xFFFF))
++			{
++				BPKG [0x02] = Local1
++				BPKG [0x05] = (Local1 / 0x0A)
++				BPKG [0x06] = (Local1 / 0x14)
++			}
++
++			Local2 = \_SB.PCI0.LPCB.EC0.B0DV
++			If ((Local2 != 0xFFFF))
++			{
++				BPKG [0x04] = Local2
++			}
++
++			Return (BPKG)
++		}
++
++		Method (_BST, 0, Serialized)
++		{
++			Name (BPKG, Package (0x04)
++			{
++				0x00,		/* battery state */
++				0xFFFFFFFF,	/* present rate */
++				0xFFFFFFFF,	/* remaining capacity */
++				0xFFFFFFFF	/* present voltage */
++			})
++
++			/*
++			 * EB0S bit0 (discharging) and bit1 (charging) already
++			 * match the ACPI _BST state bits of the same number.
++			 */
++			BPKG [0x00] = (\_SB.PCI0.LPCB.EC0.EB0S & 0x03)
++
++			/* B0CC is signed; ACPI wants an unsigned magnitude. */
++			Local0 = \_SB.PCI0.LPCB.EC0.B0CC
++			If ((Local0 != 0xFFFF))
++			{
++				If ((Local0 & 0x8000))
++				{
++					Local0 = (0x00010000 - Local0)
++				}
++
++				BPKG [0x01] = Local0
++			}
++
++			Local1 = \_SB.PCI0.LPCB.EC0.B0RC
++			If ((Local1 != 0xFFFF))
++			{
++				BPKG [0x02] = Local1
++			}
++
++			Local2 = \_SB.PCI0.LPCB.EC0.B0VL
++			If ((Local2 != 0xFFFF))
++			{
++				BPKG [0x03] = Local2
++			}
++
++			Return (BPKG)
++		}
++	}
++
++	Device (ADP0)
++	{
++		Name (_HID, "ACPI0003")
++		Name (_UID, 0)
++		Name (_PCL, Package () { \_SB })
++
++		Method (_STA, 0, NotSerialized)
++		{
++			Return (0x0F)
++		}
++
++		Method (_PSR, 0, NotSerialized)
++		{
++			Return (\_SB.PCI0.LPCB.EC0.EPWS & 0x01)
++		}
++	}
+ }
+-- 
+2.55.0
+

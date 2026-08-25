@@ -1,0 +1,127 @@
+From 182e1a2e24d803d6f31e761179aae46dd0f6004b Mon Sep 17 00:00:00 2001
+From: manerger <filidog82@gmail.com>
+Date: Mon, 24 Aug 2026 18:04:40 +0200
+Subject: [PATCH 16/21] mb/asustek_computer/k53sc: Restore EC ACPI mode after
+ S3 resume
+
+Hotkeys stopped working after a resume from S3. The EC leaves ACPI mode
+across the suspend and no longer raises the queries that deliver them, and
+the OS does not repeat the ACPI_ENABLE handshake that mainboard_smi_apmc()
+hooks, so nothing puts the EC back.
+
+Re-issue the sequence stock uses at ACPI enable from mainboard_init(),
+guarded by acpi_is_wakeup_s3() so it only runs on the resume path. The
+bytes are the same ones derived for the SMM handler, transcribed from the
+ECProtocol SMM interface entry +0x40; see smihandler.c for the full
+derivation.
+
+Tested on an ASUS K53SC with an i7-3840QM: before, the volume keys were
+dead after a suspend/resume cycle and worked again only after a reboot.
+Now they keep working across resume.
+
+Note this does not fix the fan, which runs at full speed while suspended
+and stays there after resume. That is a separate fault: the EC is in ACPI
+mode again, since the hotkeys work, yet still does not track the host
+power state - the same signature as the board refusing to drop its rails
+at S5.
+
+The EC access primitives now exist in three stages. They should be folded
+into a shared ec.c for bootblock, romstage, ramstage and smm.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .../asustek_computer/k53sc/mainboard.c        | 68 +++++++++++++++++++
+ 1 file changed, 68 insertions(+)
+
+diff --git a/src/mainboard/asustek_computer/k53sc/mainboard.c b/src/mainboard/asustek_computer/k53sc/mainboard.c
+index 01cb88fa5f..ce754a7837 100644
+--- a/src/mainboard/asustek_computer/k53sc/mainboard.c
++++ b/src/mainboard/asustek_computer/k53sc/mainboard.c
+@@ -1,9 +1,74 @@
+ /* SPDX-License-Identifier: GPL-2.0-only */
+ 
++#include <acpi/acpi.h>
++#include <arch/io.h>
+ #include <device/device.h>
+ #include <drivers/intel/gma/int15.h>
+ #include <pc80/keyboard.h>
+ 
++
++/*
++ * Put the EC back into ACPI mode after resume from S3.
++ *
++ * The EC leaves ACPI mode across a suspend: after a resume the hotkeys stop
++ * working, because the EC no longer raises the queries that deliver them.
++ * The OS does not repeat the ACPI_ENABLE handshake that mainboard_smi_apmc()
++ * hooks, so nothing puts the EC back.
++ *
++ * Re-issue the sequence stock uses at ACPI enable, transcribed from the
++ * ECProtocol SMM interface entry +0x40 (see smihandler.c for the full
++ * derivation). Bounded polling, as stock does.
++ *
++ * TODO: these primitives now exist in three stages. Once this is confirmed,
++ * fold them into a shared ec.c for bootblock, romstage, ramstage and smm.
++ */
++#define K53SC_EC_STATUS		0x258
++#define K53SC_EC_DATA		0x257
++#define K53SC_EC_OBF		(1 << 0)
++#define K53SC_EC_IBF		(1 << 1)
++#define K53SC_IO_DELAY_PORT	0xed
++#define K53SC_EC_UNLOCK		0xff
++#define K53SC_EC_CMD_ACPI	0xca
++#define K53SC_EC_ACPI_ENTER	0x16
++
++static void k53sc_ec_drain(void)
++{
++	unsigned int i;
++
++	for (i = 0; i < 0x10000; i++) {
++		if (!(inb(K53SC_EC_STATUS) & K53SC_EC_OBF))
++			return;
++		(void)inb(K53SC_EC_DATA);
++		outb(0, K53SC_IO_DELAY_PORT);
++	}
++}
++
++static void k53sc_ec_wait_ibf(void)
++{
++	unsigned int i;
++
++	for (i = 0; i < 0x10000; i++) {
++		if (!(inb(K53SC_EC_STATUS) & K53SC_EC_IBF))
++			return;
++		outb(0, K53SC_IO_DELAY_PORT);
++	}
++}
++
++static void k53sc_ec_put(uint16_t port, uint8_t val)
++{
++	k53sc_ec_wait_ibf();
++	outb(val, port);
++}
++
++static void k53sc_ec_enter_acpi_mode(void)
++{
++	k53sc_ec_drain();
++	k53sc_ec_put(K53SC_EC_STATUS, K53SC_EC_UNLOCK);
++	k53sc_ec_put(K53SC_EC_STATUS, K53SC_EC_CMD_ACPI);
++	k53sc_ec_put(K53SC_EC_DATA, K53SC_EC_ACPI_ENTER);
++	k53sc_ec_wait_ibf();
++}
++
+ static void mainboard_init(struct device *dev)
+ {
+ 	/*
+@@ -12,6 +77,9 @@ static void mainboard_init(struct device *dev)
+ 	 * control power, charging, thermal policy, fan control and devices.
+ 	 */
+ 	pc_keyboard_init(NO_AUX_DEVICE);
++
++	if (acpi_is_wakeup_s3())
++		k53sc_ec_enter_acpi_mode();
+ }
+ 
+ static void mainboard_enable(struct device *dev)
+-- 
+2.55.0
+

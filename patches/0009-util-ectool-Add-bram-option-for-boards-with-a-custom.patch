@@ -1,0 +1,135 @@
+From 0a2e44be6f97544784fc30601b436f7c4753d768 Mon Sep 17 00:00:00 2001
+From: manerger <filidog82@gmail.com>
+Date: Wed, 12 Aug 2026 19:10:42 +0200
+Subject: [PATCH 09/21] util/ectool: Add --bram option for boards with a custom
+ index base
+
+ec_idx_read() hardcodes an LPC index base of 0x380 and uses a four-port
+scheme. Some boards instead expose an indexed EC RAM window through a
+plain index/data register pair at a board-specific base. On the ASUS
+K53SC that window is at 0x25a/0x25b and carries the battery and thermal
+telemetry, so the existing -i dump reads back all 0xff because nothing
+responds at 0x380.
+
+Add ec_bram_read() and a --bram <base> option that dumps 256 bytes from
+such a window. Existing behaviour is unchanged: --bram is additive, and
+it no longer forces the default RAM dump when it is the only option
+given.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ util/ectool/ec.c     | 11 +++++++++++
+ util/ectool/ec.h     |  1 +
+ util/ectool/ectool.c | 20 ++++++++++++++++++--
+ 3 files changed, 30 insertions(+), 2 deletions(-)
+
+diff --git a/util/ectool/ec.c b/util/ectool/ec.c
+index a189a094b5..b04fa06ed4 100644
+--- a/util/ectool/ec.c
++++ b/util/ectool/ec.c
+@@ -151,6 +151,17 @@ uint8_t ec_idx_read(uint16_t addr)
+ 	return inb(lpc_idx + 3);
+ }
+ 
++/*
++ * Some boards (e.g. ASUS K53SC) expose an indexed EC BRAM window through a
++ * plain index/data register pair rather than the 0x380 LPC scheme used by
++ * ec_idx_read(). The base port is board specific, so it is passed in.
++ */
++uint8_t ec_bram_read(uint16_t base, uint8_t addr)
++{
++	outb(addr, base);
++	return inb(base + 1);
++}
++
+ uint8_t ec_query(void)
+ {
+ 	send_ec_command(QR_EC);
+diff --git a/util/ectool/ec.h b/util/ectool/ec.h
+index 651c35b737..0f1f6c2bcb 100644
+--- a/util/ectool/ec.h
++++ b/util/ectool/ec.h
+@@ -30,6 +30,7 @@ int ec_write(uint8_t addr, uint8_t data);
+ uint8_t ec_ext_read(uint16_t addr);
+ int ec_ext_write(uint16_t addr, uint8_t data);
+ uint8_t ec_idx_read(uint16_t addr);
++uint8_t ec_bram_read(uint16_t base, uint8_t addr);
+ uint8_t ec_query(void);
+ int get_ec_ports(void);
+ #endif
+diff --git a/util/ectool/ectool.c b/util/ectool/ectool.c
+index cb6f280f4c..359265d9d3 100644
+--- a/util/ectool/ectool.c
++++ b/util/ectool/ectool.c
+@@ -52,6 +52,7 @@ void print_usage(const char *name)
+ 	       "   -d | --dump:                      print RAM\n"
+ 	       "   -i | --idx:                       print IDX RAM & RAM\n"
+ 	       "   -q | --query:                     print query byte\n"
++	       "   -b | --bram <base in hex>:        print 256-byte indexed BRAM at base/base+1\n"
+ 	       "   -w <addr in hex>                  write to addr\n"
+ 	       "   -z <data in hex>                  write to data\n"
+ 	       "\n");
+@@ -59,6 +60,7 @@ void print_usage(const char *name)
+ }
+ 
+ int verbose = 0, dump_idx = 0, dump_ram = 0, dump_query = 0, get_ports = 0;
++long bram_base = -1;
+ 
+ int main(int argc, char *argv[])
+ {
+@@ -73,6 +75,7 @@ int main(int argc, char *argv[])
+ 		{"idx", 0, 0, 'i'},
+ 		{"query", 0, 0, 'q'},
+ 		{"getports", 0, 0, 'p'},
++		{"bram", 1, 0, 'b'},
+ 		{0, 0, 0, 0}
+ 	};
+ 
+@@ -81,7 +84,7 @@ int main(int argc, char *argv[])
+ 		exit(1);
+ 	}
+ 
+-	while ((opt = getopt_long(argc, argv, "vh?Vidqpw:z:",
++	while ((opt = getopt_long(argc, argv, "vh?Vidqpb:w:z:",
+ 				  long_options, &option_index)) != EOF) {
+ 		switch (opt) {
+ 		case 'v':
+@@ -110,6 +113,9 @@ int main(int argc, char *argv[])
+ 		case 'p':
+ 			get_ports = 1;
+ 			break;
++		case 'b':
++			bram_base = strtol(optarg, NULL, 16);
++			break;
+ 		case 'h':
+ 		case '?':
+ 		default:
+@@ -141,7 +147,7 @@ int main(int argc, char *argv[])
+ 	}
+ 
+ 	/* preserve default - dump_ram if nothing selected */
+-	if (!dump_ram && !dump_idx && !dump_query && (write_addr == -1))
++	if (!dump_ram && !dump_idx && !dump_query && bram_base < 0 && (write_addr == -1))
+ 		dump_ram = 1;
+ 
+ 	if (dump_ram) {
+@@ -158,6 +164,16 @@ int main(int argc, char *argv[])
+ 		printf("EC QUERY %02x\n", ec_query());
+ 	}
+ 
++	if (bram_base >= 0) {
++		printf("EC BRAM @ 0x%03lx/0x%03lx:\n", bram_base, bram_base + 1);
++		for (i = 0; i < 0x100; i++) {
++			if ((i % 0x10) == 0)
++				printf("\n%02x: ", i);
++			printf("%02x ", ec_bram_read(bram_base, i));
++		}
++		printf("\n\n");
++	}
++
+ 	if (dump_idx) {
+ 		printf("EC IDX RAM:\n");
+ 		for (i = 0; i < 0x10000; i++) {
+-- 
+2.55.0
+

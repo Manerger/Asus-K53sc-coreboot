@@ -1,0 +1,161 @@
+From 5c9744348b26a952f44a21fc19d85fefe3179975 Mon Sep 17 00:00:00 2001
+From: manerger <filidog82@gmail.com>
+Date: Wed, 12 Aug 2026 21:28:40 +0200
+Subject: [PATCH 08/21] mb/asustek_computer/k53sc: Declare the ASUS ATK WMI
+ device
+
+The stock firmware declares an ACPI-WMI device in \_SB that Linux binds
+asus_wmi, asus_nb_wmi and asus_armoury to; those drivers manage hotkeys,
+LEDs, backlight and part of the thermal policy. coreboot declared no such
+device, so no ASUS driver loaded and the EC went entirely unmanaged by
+the OS. This explains stock-versus-coreboot EC differences that had
+previously been mistaken for missing firmware initialisation, including
+the thermal trip points and the leftover command scratch registers.
+
+Declare the device with both WMI blocks transcribed from the stock _WDG:
+the method block 97845ed0-4e6d-11de-8a39-0800200c9a66 with object id "BN"
+routed to WMNB, and the event block 0b3cbb35-e3c2-45ed-91c2-4c5a6d195d1c
+on notify 0xff.
+
+This is a first stage. WMNB implements the entry points asus_wmi calls
+while probing, and DSTS deliberately reports every queried device as
+unsupported rather than claiming hardware support that is not backed
+here. Verified on hardware: asus_wmi, asus_nb_wmi, asus_armoury and
+sparse_keymap all bind, both WMI GUIDs appear on the wmi bus, and an asus
+hwmon device is registered. Per-device support can be added incrementally
+on top.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .../asustek_computer/k53sc/acpi/atkd.asl      | 102 ++++++++++++++++++
+ src/mainboard/asustek_computer/k53sc/dsdt.asl |   5 +
+ 2 files changed, 107 insertions(+)
+ create mode 100644 src/mainboard/asustek_computer/k53sc/acpi/atkd.asl
+
+diff --git a/src/mainboard/asustek_computer/k53sc/acpi/atkd.asl b/src/mainboard/asustek_computer/k53sc/acpi/atkd.asl
+new file mode 100644
+index 0000000000..6b750b75d1
+--- /dev/null
++++ b/src/mainboard/asustek_computer/k53sc/acpi/atkd.asl
+@@ -0,0 +1,102 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++/*
++ * ASUS ATK WMI device.
++ *
++ * The stock firmware declares this as an ACPI-WMI device in the \_SB scope;
++ * Linux binds asus_wmi / asus_nb_wmi to it, and those drivers are what manage
++ * hotkeys, LEDs, backlight and parts of the thermal policy. Without it no ASUS
++ * driver loads at all and the EC is left unmanaged by the OS.
++ *
++ * This is a deliberately minimal first stage: the device, both WMI blocks and
++ * the WMNB dispatch entry points that asus_wmi calls while probing. Device
++ * queries report "unsupported" rather than claiming hardware support that is
++ * not backed here. Real device support can be added incrementally once the
++ * driver is confirmed to bind.
++ *
++ * WMI blocks, transcribed from the stock _WDG:
++ *   97845ed0-4e6d-11de-8a39-0800200c9a66  method block, object id "BN" -> WMNB
++ *   0b3cbb35-e3c2-45ed-91c2-4c5a6d195d1c  event block, notify id 0xff
++ */
++
++Device (ATKD)
++{
++	Name (_HID, "PNP0C14")
++	Name (_UID, "ATK")
++
++	Name (_WDG, Buffer (0x28)
++	{
++		/* 97845ed0-4e6d-11de-8a39-0800200c9a66, "BN", 1 inst, method */
++		0xD0, 0x5E, 0x84, 0x97, 0x6D, 0x4E, 0xDE, 0x11,
++		0x8A, 0x39, 0x08, 0x00, 0x20, 0x0C, 0x9A, 0x66,
++		0x4E, 0x42, 0x01, 0x02,
++
++		/* 0b3cbb35-e3c2-45ed-91c2-4c5a6d195d1c, notify 0xff, event */
++		0x35, 0xBB, 0x3C, 0x0B, 0xC2, 0xE3, 0xED, 0x45,
++		0x91, 0xC2, 0x4C, 0x5A, 0x6D, 0x19, 0x5D, 0x1C,
++		0xFF, 0x00, 0x01, 0x08
++	})
++
++	/* Set once INIT has been seen, mirroring the stock flag. */
++	Name (ATKP, Zero)
++
++	/* Model name returned by INIT. */
++	Name (MNAM, "K53SC")
++
++	Method (_WED, 1, NotSerialized)
++	{
++		Return (Arg0)
++	}
++
++	Method (WMNB, 3, Serialized)
++	{
++		CreateDWordField (Arg2, 0x00, IIA0)
++
++		Local0 = (Arg1 & 0xFFFFFFFF)
++
++		Switch (ToInteger (Local0))
++		{
++			/* "INIT" - hand back an identifier and latch the flag. */
++			Case (0x54494E49)
++			{
++				ATKP = One
++				Return (MNAM)
++			}
++
++			/* "BSTS" - boot status flags. Nothing to report. */
++			Case (0x53545342)
++			{
++				Return (Zero)
++			}
++
++			/*
++			 * "SFUN" - supported function mask. Report none while
++			 * no device is backed, so the driver does not act on
++			 * capabilities this stage cannot honour.
++			 */
++			Case (0x4E554653)
++			{
++				Return (Zero)
++			}
++
++			/*
++			 * "DSTS" - device status. Bit 16 set means "device
++			 * present/supported"; returning zero reports every
++			 * queried device as unsupported.
++			 */
++			Case (0x53545344)
++			{
++				Return (Zero)
++			}
++
++			/* "DEVS" - set device state. Nothing is settable yet. */
++			Case (0x53564544)
++			{
++				Return (Zero)
++			}
++		}
++
++		/* Unknown or unimplemented command. */
++		Return (Zero)
++	}
++}
+diff --git a/src/mainboard/asustek_computer/k53sc/dsdt.asl b/src/mainboard/asustek_computer/k53sc/dsdt.asl
+index cee4939fe0..d717dc5aca 100644
+--- a/src/mainboard/asustek_computer/k53sc/dsdt.asl
++++ b/src/mainboard/asustek_computer/k53sc/dsdt.asl
+@@ -20,6 +20,11 @@ DefinitionBlock(
+ 	#include <southbridge/intel/bd82x6x/acpi/globalnvs.asl>
+ 	#include <southbridge/intel/common/acpi/sleepstates.asl>
+ 
++	Scope (\_SB)
++	{
++		#include "acpi/atkd.asl"
++	}
++
+ 	Device (\_SB.PCI0)
+ 	{
+ 		#include <northbridge/intel/sandybridge/acpi/sandybridge.asl>
+-- 
+2.55.0
+

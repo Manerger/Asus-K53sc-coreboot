@@ -1,0 +1,101 @@
+From 2d60c29585cec6cfd45a617cd41f27eddc24fddf Mon Sep 17 00:00:00 2001
+From: manerger <filidog82@gmail.com>
+Date: Wed, 12 Aug 2026 19:11:30 +0200
+Subject: [PATCH 06/21] mb/asustek_computer/k53sc: Test GPI1 SMI (negative
+ result)
+
+Keep this as a recorded experiment so it is not attempted again.
+
+The stock firmware enables an alternate-GPI SMI on GPI1
+(ALT_GP_SMI_EN = 0x0002) and services it from SMM. coreboot configures
+the same pin identically in gpio.c (GPIO_MODE_GPIO, GPIO_DIR_INPUT,
+GPIO_INVERT) but left the SMI disabled with no handler, and this was the
+last remaining firmware-visible event-routing difference against stock:
+GPI3 turned out to be SATA hot-plug (stock _L13) and GPE 6 the Intel
+graphics SCI (stock _L06), both ordinary features enabled by OS drivers.
+
+Set alt_gp_smi_en in the devicetree, which is the correct lever, since
+bd82x6x lpc.c writes ALT_GP_SMI_EN from chip config during LPC device
+init and overwrites anything set earlier from mainboard_init(). Add a
+mainboard_smi_gpi() that only reports, issuing no EC command, so that any
+behavioural change could be attributed to enabling the SMI alone.
+
+Result: ALT_GP_SMI_EN was verified as 0x0002 at runtime, matching stock,
+GPI1 never asserted once across a full boot, and neither the S5 failure
+nor the A2 loop changed. GPI1 is not an EC service request that coreboot
+was ignoring.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .../asustek_computer/k53sc/Makefile.mk        |  1 +
+ .../asustek_computer/k53sc/devicetree.cb      |  2 ++
+ .../asustek_computer/k53sc/smihandler.c       | 35 +++++++++++++++++++
+ 3 files changed, 38 insertions(+)
+ create mode 100755 src/mainboard/asustek_computer/k53sc/smihandler.c
+
+diff --git a/src/mainboard/asustek_computer/k53sc/Makefile.mk b/src/mainboard/asustek_computer/k53sc/Makefile.mk
+index fb492d3583..393ef7f74a 100644
+--- a/src/mainboard/asustek_computer/k53sc/Makefile.mk
++++ b/src/mainboard/asustek_computer/k53sc/Makefile.mk
+@@ -5,3 +5,4 @@ bootblock-y += gpio.c
+ romstage-y += early_init.c
+ romstage-y += gpio.c
+ ramstage-$(CONFIG_MAINBOARD_USE_LIBGFXINIT) += gma-mainboard.ads
++smm-y += smihandler.c
+diff --git a/src/mainboard/asustek_computer/k53sc/devicetree.cb b/src/mainboard/asustek_computer/k53sc/devicetree.cb
+index 26f402aac5..2bebc64e79 100644
+--- a/src/mainboard/asustek_computer/k53sc/devicetree.cb
++++ b/src/mainboard/asustek_computer/k53sc/devicetree.cb
+@@ -24,6 +24,8 @@ chip northbridge/intel/sandybridge # FIXME: GPU registers may not always apply.
+ 		end
+ 		chip southbridge/intel/bd82x6x # Intel 6 Series Cougar Point PCH
+ 			register "docking_supported" = "0"
++			# Stock firmware enables an alternate-GPI SMI on GPI1.
++			register "alt_gp_smi_en" = "0x0002"
+ 			register "gen1_dec" = "0x00000000"
+ 			register "gen2_dec" = "0x00000000"
+ 			register "gen3_dec" = "0x002c0251"
+diff --git a/src/mainboard/asustek_computer/k53sc/smihandler.c b/src/mainboard/asustek_computer/k53sc/smihandler.c
+new file mode 100755
+index 0000000000..889132bf82
+--- /dev/null
++++ b/src/mainboard/asustek_computer/k53sc/smihandler.c
+@@ -0,0 +1,35 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++#include <console/console.h>
++#include <cpu/x86/smm.h>
++
++/*
++ * K53SC GPI1 SMI experiment.
++ *
++ * The stock ASUS firmware enables an alternate-GPI SMI on GPI1
++ * (ALT_GP_SMI_EN = 0x0002) and services it from SMM. coreboot configures the
++ * same pin identically (GPIO_MODE_GPIO / GPIO_DIR_INPUT / GPIO_INVERT in
++ * gpio.c) but never enables the SMI and supplies no handler, so the common
++ * handler falls through to the weak default.
++ *
++ * GPI1 is the only remaining event-routing difference between stock and
++ * coreboot on this board: GPI3 is SATA hot-plug (stock _L13) and GPE 6 is the
++ * Intel graphics SCI (stock _L06), both ordinary features.
++ *
++ * This handler deliberately only reports. It issues no EC command and writes
++ * no EC register, so a behavioral change can be attributed to enabling the SMI
++ * alone rather than to any speculative EC access. The common handler has
++ * already cleared ALT_GP_SMI_STS before calling us.
++ */
++
++#define K53SC_GPI_EC	1
++
++void mainboard_smi_gpi(u32 gpi_sts)
++{
++	if (gpi_sts & (1 << K53SC_GPI_EC))
++		printk(BIOS_DEBUG, "K53SC SMI: GPI1 asserted\n");
++
++	if (gpi_sts & ~(1 << K53SC_GPI_EC))
++		printk(BIOS_DEBUG, "K53SC SMI: unexpected GPI status 0x%08x\n",
++		       gpi_sts);
++}
+-- 
+2.55.0
+

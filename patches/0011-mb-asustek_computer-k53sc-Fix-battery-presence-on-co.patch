@@ -1,0 +1,78 @@
+From 5da73f21a6f92255a59257791069b53d06b2372e Mon Sep 17 00:00:00 2001
+From: manerger <filidog82@gmail.com>
+Date: Sun, 23 Aug 2026 21:04:54 +0200
+Subject: [PATCH 11/21] mb/asustek_computer/k53sc: Fix battery presence on cold
+ boot
+
+BAT0 ._STA derived presence solely from B0FC, the last-full-charge
+capacity. The EC can only fill that in after a slow SMBus transaction to
+the pack's gas gauge, so when the pack has been out the field still reads
+zero at the time _STA is first evaluated and the OS marks the slot empty:
+
+  ACPI: battery: Slot [BAT0] (battery absent)
+
+Nothing ever corrects this. The EC SCI does not fire on this board, so no
+notification arrives to make the OS re-evaluate _STA, and the battery
+stays invisible for the entire boot. Rebinding the acpi-battery driver by
+hand makes it appear, confirming _STA reads correctly once the EC is warm.
+
+Test EPWS bit 1 first. It comes from the pack detect pin and is valid as
+soon as the EC runs. Measured on this board: 0x03 with the pack seated
+(bit 0 AC, bit 1 battery), 0x01 with it removed, so the bit tracks the
+pack rather than latching. The B0FC check is kept as a fallback, so the
+status bit can only ever add presence, never wrongly remove it.
+
+Tested on an ASUS K53SC with an i7-3840QM: booting with the pack seated
+now reports "Slot [BAT0] (battery present)" with no intervention, and
+booting without it still reports absent.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .../asustek_computer/k53sc/acpi/ec.asl        | 28 ++++++++++++++-----
+ 1 file changed, 21 insertions(+), 7 deletions(-)
+
+diff --git a/src/mainboard/asustek_computer/k53sc/acpi/ec.asl b/src/mainboard/asustek_computer/k53sc/acpi/ec.asl
+index 2612448fd5..67741e8c54 100644
+--- a/src/mainboard/asustek_computer/k53sc/acpi/ec.asl
++++ b/src/mainboard/asustek_computer/k53sc/acpi/ec.asl
+@@ -90,16 +90,30 @@ Device (EC0)
+ 		Name (_PCL, Package () { \_SB })
+ 
+ 		/*
+-		 * Presence is derived from the reported last-full-charge
+-		 * capacity rather than a status bit: a battery that reports a
+-		 * sane capacity is present by construction, and this cannot be
+-		 * fooled by a status bit whose meaning we have not confirmed
+-		 * for the battery-absent case.
++		 * Presence is reported if either the EC's battery-present bit
++		 * or a sane last-full-charge capacity says so.
++		 *
++		 * EPWS bit 1 is derived from the pack detect pin and is valid
++		 * as soon as the EC runs. B0FC needs a slow SMBus transaction
++		 * to the pack's gas gauge, so after the pack has been out it
++		 * still reads 0 when _STA is first evaluated. The EC SCI never
++		 * fires on this board, so nothing ever notifies the OS to look
++		 * again and the battery stays invisible for the whole boot.
++		 *
++		 * The capacity check is kept as a fallback so that a status bit
++		 * whose battery-absent meaning is unconfirmed can only ever add
++		 * presence, never wrongly remove it.
+ 		 */
+ 		Method (_STA, 0, NotSerialized)
+ 		{
+-			Local0 = \_SB.PCI0.LPCB.EC0.B0FC
+-			If ((Local0 == 0x00) || (Local0 == 0xFFFF))
++			Local0 = \_SB.PCI0.LPCB.EC0.EPWS
++			If (((Local0 & 0x02) == 0x02))
++			{
++				Return (0x1F)
++			}
++
++			Local1 = \_SB.PCI0.LPCB.EC0.B0FC
++			If (((Local1 == 0x00) || (Local1 == 0xFFFF)))
+ 			{
+ 				Return (0x0F)
+ 			}
+-- 
+2.55.0
+

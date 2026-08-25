@@ -1,0 +1,21 @@
+836932984e mb/asustek_computer/k53sc: Document the required binary blobs
+03cd593382 mb/asustek_computer/k53sc: Arm the EC power sequencer so S3/S5 work
+7e25e5d4dc mb/asustek_computer/k53sc: Consolidate the EC access primitives
+80e0baf379 mb/asustek_computer/k53sc: Enable the discrete GT 520MX
+53995e321c mb/asustek_computer/k53sc: Add an SMMSTORE region for UEFI payloads
+182e1a2e24 mb/asustek_computer/k53sc: Restore EC ACPI mode after S3 resume
+5c82866644 mb/asustek_computer/k53sc: Enable suspend to RAM
+28b8d9a7af mb/asustek_computer/k53sc: Deliver hotkey codes through _WED
+91e2a919cf mb/asustek_computer/k53sc: Put the EC into ACPI mode from SMM
+821676071e mb/asustek_computer/k53sc: Add the ASUS hotkey ACPI layer
+5da73f21a6 mb/asustek_computer/k53sc: Fix battery presence on cold boot
+cca16109b4 mb/asustek_computer/k53sc: Add the factory VBT
+0a2e44be6f util/ectool: Add --bram option for boards with a custom index base
+5c9744348b mb/asustek_computer/k53sc: Declare the ASUS ATK WMI device
+8986c7f9b0 mb/asustek_computer/k53sc: Hand the CPU Tjmax to the EC in bootblock
+2d60c29585 mb/asustek_computer/k53sc: Test GPI1 SMI (negative result)
+177f19741a mb/asustek_computer/k53sc: Add battery and AC adapter ACPI
+9f4d0b8ef0 mb/asustek_computer/k53sc: preserve vendor flash data
+b601c29fb0 mb/asustek_computer/k53sc: checkpoint test2 board state
+90061937f3 mb/asustek_computer/k53sc: sanitize initial bring-up
+f34b9d366e mb/asustek_computer/k53sc: import autoport of Asus K53SC

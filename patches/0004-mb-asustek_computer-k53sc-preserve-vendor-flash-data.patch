@@ -1,0 +1,43 @@
+From 9f4d0b8ef04858588941554013507323ea8b5981 Mon Sep 17 00:00:00 2001
+From: manerger <filidog82@gmail.com>
+Date: Thu, 6 Aug 2026 10:18:20 +0200
+Subject: [PATCH 04/21] mb/asustek_computer/k53sc: preserve vendor flash data
+
+---
+ src/mainboard/asustek_computer/k53sc/Kconfig   |  2 ++
+ src/mainboard/asustek_computer/k53sc/k53sc.fmd | 12 ++++++++++++
+ 2 files changed, 14 insertions(+)
+ create mode 100644 src/mainboard/asustek_computer/k53sc/k53sc.fmd
+
+diff --git a/src/mainboard/asustek_computer/k53sc/Kconfig b/src/mainboard/asustek_computer/k53sc/Kconfig
+index eee799750b..48c3d47af1 100644
+--- a/src/mainboard/asustek_computer/k53sc/Kconfig
++++ b/src/mainboard/asustek_computer/k53sc/Kconfig
+@@ -37,4 +37,6 @@ config USBDEBUG_HCD_INDEX
+ 	int
+ 	default 2
+ 
++config FMDFILE
++	default "src/mainboard/asustek_computer/k53sc/k53sc.fmd"
+ endif
+diff --git a/src/mainboard/asustek_computer/k53sc/k53sc.fmd b/src/mainboard/asustek_computer/k53sc/k53sc.fmd
+new file mode 100644
+index 0000000000..60c3e33cca
+--- /dev/null
++++ b/src/mainboard/asustek_computer/k53sc/k53sc.fmd
+@@ -0,0 +1,12 @@
++FLASH 4M {
++	SI_DESC@0x0 4K
++	SI_ME@0x1000 0x17f000
++
++	SI_BIOS@0x180000 0x280000 {
++		RW_MRC_CACHE(PRESERVE)@0x0 64K
++		BIOS_UNUSED@0x10000 0x70000
++		VENDOR_DATA(PRESERVE)@0x80000 64K
++		FMAP@0x90000 4K
++		COREBOOT(CBFS)@0x91000 0x1ef000
++	}
++}
+-- 
+2.55.0
+

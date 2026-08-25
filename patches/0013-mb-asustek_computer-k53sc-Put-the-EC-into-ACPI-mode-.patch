@@ -1,0 +1,153 @@
+From 91e2a919cf77df14f01932168008f145ada9b3d8 Mon Sep 17 00:00:00 2001
+From: manerger <filidog82@gmail.com>
+Date: Mon, 24 Aug 2026 17:11:15 +0200
+Subject: [PATCH 13/21] mb/asustek_computer/k53sc: Put the EC into ACPI mode
+ from SMM
+
+The EC never delivered any event to the OS. Pressing an Fn hotkey produced
+only a plain AT scancode, nothing reached the ACPI or WMI path, and the
+GPE 0x1B counter did not move.
+
+Stock's AcpiModeEnable module registers software SMI handlers for the FADT
+ACPI_ENABLE/ACPI_DISABLE values and, after the usual PM register work,
+walks a list of registered callbacks. ECSMI registers into that list, and
+its callbacks reach the ECProtocol SMM interface (GUID
+ac44520d-0169-4966-b743-4f6ceaf2598e, installed at 0x140001ef0, size
+0x130) at entries +0x40 and +0x48, which are:
+
+  +0x40  drain; 0xff -> 0x258; 0xca -> 0x258; 0x16 -> 0x257
+  +0x48  drain; 0xff -> 0x258; 0xca -> 0x258; 0x17 -> 0x257
+
+coreboot's southbridge_smi_apmc() handles the same two APMC values by
+setting and clearing SCI_EN, and never tells the EC anything. Issue the
+stock sequences from mainboard_smi_apmc() so the EC learns the host has
+entered ACPI mode.
+
+The same bytes had been tried before from userspace with no effect. That
+test was invalid: the kernel's ACPI EC driver owns the same controller, so
+raw writes from userspace race with it and desynchronise the EC, producing
+a storm of spurious queries and stray scancodes. Issued from SMM, before
+the OS driver exists, they work.
+
+Every port, command and data byte is transcribed from the stock module,
+and the wait loops mirror its bounded polling so an unresponsive EC cannot
+stall SMM indefinitely.
+
+Tested on an ASUS K53SC with an i7-3840QM. Before, twelve key presses left
+GPE 0x1B at 1. After, with an idle rate measured at zero over 25 seconds,
+five presses of Fn+F12 moved it from 11 to 21, and the queries are the
+ones stock's DSDT expects: Fn+F12 raises _Q15 and Fn+F10 raises _Q13.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .../asustek_computer/k53sc/smihandler.c       | 91 +++++++++++++++++++
+ 1 file changed, 91 insertions(+)
+
+diff --git a/src/mainboard/asustek_computer/k53sc/smihandler.c b/src/mainboard/asustek_computer/k53sc/smihandler.c
+index 889132bf82..311867ced9 100755
+--- a/src/mainboard/asustek_computer/k53sc/smihandler.c
++++ b/src/mainboard/asustek_computer/k53sc/smihandler.c
+@@ -1,5 +1,6 @@
+ /* SPDX-License-Identifier: GPL-2.0-only */
+ 
++#include <arch/io.h>
+ #include <console/console.h>
+ #include <cpu/x86/smm.h>
+ 
+@@ -33,3 +34,93 @@ void mainboard_smi_gpi(u32 gpi_sts)
+ 		printk(BIOS_DEBUG, "K53SC SMI: unexpected GPI status 0x%08x\n",
+ 		       gpi_sts);
+ }
++
++/*
++ * Put the EC into ACPI mode when the OS enables ACPI, as stock does.
++ *
++ * Stock's AcpiModeEnable module registers software SMI handlers for the FADT
++ * ACPI_ENABLE/ACPI_DISABLE values and, after the usual PM register work, walks
++ * a list of registered callbacks. ECSMI registers into that list, and its
++ * callbacks call the ECProtocol SMM interface (GUID
++ * ac44520d-0169-4966-b743-4f6ceaf2598e, installed at 0x140001ef0 with size
++ * 0x130) at entries +0x40 and +0x48. Those two entries are these sequences:
++ *
++ *   +0x40  drain; 0xff -> 0x258; 0xca -> 0x258; 0x16 -> 0x257
++ *   +0x48  drain; 0xff -> 0x258; 0xca -> 0x258; 0x17 -> 0x257
++ *
++ * coreboot's southbridge_smi_apmc() handles the same two APMC values by
++ * setting and clearing SCI_EN and never touches the EC, so under coreboot the
++ * EC is never told the host has entered ACPI mode. Fn hotkeys produce only
++ * plain AT scancodes, nothing reaches the ACPI/WMI path and the GPE 0x1B
++ * counter does not move on a key press.
++ *
++ * Nothing here is invented: every port, command and data byte is transcribed
++ * from the stock module, and the wait loops mirror its bounded polling so an
++ * unresponsive EC cannot stall SMM indefinitely.
++ */
++
++#define K53SC_EC_STATUS		0x258	/* ECIC in the stock DSDT */
++#define K53SC_EC_DATA		0x257	/* ECID in the stock DSDT */
++#define K53SC_EC_OBF		(1 << 0)
++#define K53SC_EC_IBF		(1 << 1)
++#define K53SC_IO_DELAY_PORT	0xed
++
++#define K53SC_EC_UNLOCK		0xff
++#define K53SC_EC_CMD_ACPI	0xca
++#define K53SC_EC_ACPI_ENTER	0x16
++#define K53SC_EC_ACPI_EXIT	0x17
++
++/* Discard any stale output, mirroring the stock drain. */
++static void k53sc_ec_drain(void)
++{
++	unsigned int i;
++
++	for (i = 0; i < 0x10000; i++) {
++		if (!(inb(K53SC_EC_STATUS) & K53SC_EC_OBF))
++			return;
++		(void)inb(K53SC_EC_DATA);
++		outb(0, K53SC_IO_DELAY_PORT);
++	}
++}
++
++static void k53sc_ec_wait_ibf(void)
++{
++	unsigned int i;
++
++	for (i = 0; i < 0x10000; i++) {
++		if (!(inb(K53SC_EC_STATUS) & K53SC_EC_IBF))
++			return;
++		outb(0, K53SC_IO_DELAY_PORT);
++	}
++}
++
++static void k53sc_ec_put(uint16_t port, uint8_t val)
++{
++	k53sc_ec_wait_ibf();
++	outb(val, port);
++}
++
++static void k53sc_ec_acpi_mode(uint8_t mode)
++{
++	k53sc_ec_drain();
++	k53sc_ec_put(K53SC_EC_STATUS, K53SC_EC_UNLOCK);
++	k53sc_ec_put(K53SC_EC_STATUS, K53SC_EC_CMD_ACPI);
++	k53sc_ec_put(K53SC_EC_DATA, mode);
++	k53sc_ec_wait_ibf();
++}
++
++int mainboard_smi_apmc(u8 data)
++{
++	switch (data) {
++	case APM_CNT_ACPI_ENABLE:
++		printk(BIOS_DEBUG, "K53SC SMI: EC to ACPI mode\n");
++		k53sc_ec_acpi_mode(K53SC_EC_ACPI_ENTER);
++		break;
++	case APM_CNT_ACPI_DISABLE:
++		printk(BIOS_DEBUG, "K53SC SMI: EC out of ACPI mode\n");
++		k53sc_ec_acpi_mode(K53SC_EC_ACPI_EXIT);
++		break;
++	}
++
++	return 0;
++}
+-- 
+2.55.0
+

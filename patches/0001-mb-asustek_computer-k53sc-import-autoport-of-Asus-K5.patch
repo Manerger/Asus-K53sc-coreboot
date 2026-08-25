@@ -1,0 +1,732 @@
+From f34b9d366e0fbff03ae34597eef739b6f193d0c5 Mon Sep 17 00:00:00 2001
+From: manerger <filidog82@gmail.com>
+Date: Wed, 5 Aug 2026 22:36:02 +0200
+Subject: [PATCH 01/21] mb/asustek_computer/k53sc: import autoport of Asus
+ K53SC
+
+---
+ src/mainboard/asustek_computer/Kconfig        |  18 ++
+ src/mainboard/asustek_computer/Kconfig.name   |   4 +
+ src/mainboard/asustek_computer/k53sc/Kconfig  |  39 ++++
+ .../asustek_computer/k53sc/Kconfig.name       |   4 +
+ .../asustek_computer/k53sc/Makefile.mk        |   7 +
+ .../asustek_computer/k53sc/acpi/ec.asl        |   9 +
+ .../asustek_computer/k53sc/acpi/platform.asl  |  12 +
+ .../asustek_computer/k53sc/acpi/superio.asl   |   3 +
+ .../asustek_computer/k53sc/acpi_tables.c      |  16 ++
+ .../asustek_computer/k53sc/board_info.txt     |   4 +
+ .../asustek_computer/k53sc/devicetree.cb      | 111 ++++++++++
+ src/mainboard/asustek_computer/k53sc/dsdt.asl |  29 +++
+ .../asustek_computer/k53sc/early_init.c       |  11 +
+ .../asustek_computer/k53sc/gma-mainboard.ads  |  23 ++
+ src/mainboard/asustek_computer/k53sc/gpio.c   | 208 ++++++++++++++++++
+ .../asustek_computer/k53sc/hda_verb.c         |  33 +++
+ .../asustek_computer/k53sc/mainboard.c        |  53 +++++
+ 17 files changed, 584 insertions(+)
+ create mode 100644 src/mainboard/asustek_computer/Kconfig
+ create mode 100644 src/mainboard/asustek_computer/Kconfig.name
+ create mode 100644 src/mainboard/asustek_computer/k53sc/Kconfig
+ create mode 100644 src/mainboard/asustek_computer/k53sc/Kconfig.name
+ create mode 100644 src/mainboard/asustek_computer/k53sc/Makefile.mk
+ create mode 100644 src/mainboard/asustek_computer/k53sc/acpi/ec.asl
+ create mode 100644 src/mainboard/asustek_computer/k53sc/acpi/platform.asl
+ create mode 100644 src/mainboard/asustek_computer/k53sc/acpi/superio.asl
+ create mode 100644 src/mainboard/asustek_computer/k53sc/acpi_tables.c
+ create mode 100644 src/mainboard/asustek_computer/k53sc/board_info.txt
+ create mode 100644 src/mainboard/asustek_computer/k53sc/devicetree.cb
+ create mode 100644 src/mainboard/asustek_computer/k53sc/dsdt.asl
+ create mode 100644 src/mainboard/asustek_computer/k53sc/early_init.c
+ create mode 100644 src/mainboard/asustek_computer/k53sc/gma-mainboard.ads
+ create mode 100644 src/mainboard/asustek_computer/k53sc/gpio.c
+ create mode 100644 src/mainboard/asustek_computer/k53sc/hda_verb.c
+ create mode 100644 src/mainboard/asustek_computer/k53sc/mainboard.c
+
+diff --git a/src/mainboard/asustek_computer/Kconfig b/src/mainboard/asustek_computer/Kconfig
+new file mode 100644
+index 0000000000..d0c18f0233
+--- /dev/null
++++ b/src/mainboard/asustek_computer/Kconfig
+@@ -0,0 +1,18 @@
++## SPDX-License-Identifier: GPL-2.0-only
++
++if VENDOR_ASUSTEK_COMPUTER
++
++choice
++	prompt "Mainboard model"
++
++source "src/mainboard/asustek_computer/*/Kconfig.name"
++
++endchoice
++
++source "src/mainboard/asustek_computer/*/Kconfig"
++
++config MAINBOARD_VENDOR
++	string
++	default "ASUSTeK Computer Inc."
++
++endif # VENDOR_ASUSTEK_COMPUTER
+diff --git a/src/mainboard/asustek_computer/Kconfig.name b/src/mainboard/asustek_computer/Kconfig.name
+new file mode 100644
+index 0000000000..31504d3185
+--- /dev/null
++++ b/src/mainboard/asustek_computer/Kconfig.name
+@@ -0,0 +1,4 @@
++## SPDX-License-Identifier: GPL-2.0-only
++
++config VENDOR_ASUSTEK_COMPUTER
++	bool "ASUSTeK Computer Inc."
+diff --git a/src/mainboard/asustek_computer/k53sc/Kconfig b/src/mainboard/asustek_computer/k53sc/Kconfig
+new file mode 100644
+index 0000000000..e1c25af95d
+--- /dev/null
++++ b/src/mainboard/asustek_computer/k53sc/Kconfig
+@@ -0,0 +1,39 @@
++## SPDX-License-Identifier: GPL-2.0-only
++
++if BOARD_ASUSTEK_COMPUTER_K53SC
++
++config BOARD_SPECIFIC_OPTIONS
++	def_bool y
++	select AZALIA_USE_LEGACY_VERB_TABLE
++	select BOARD_ROMSIZE_KB_4096
++	select EC_ACPI
++	select HAVE_ACPI_RESUME
++	select HAVE_ACPI_TABLES
++	select INTEL_INT15
++	select MAINBOARD_HAS_LIBGFXINIT # FIXME: check this
++	select NORTHBRIDGE_INTEL_SANDYBRIDGE
++	select SERIRQ_CONTINUOUS_MODE
++	select SOUTHBRIDGE_INTEL_BD82X6X
++	select SYSTEM_TYPE_LAPTOP
++	select USE_NATIVE_RAMINIT
++
++config MAINBOARD_DIR
++	string
++	default "asustek_computer/k53sc"
++
++config MAINBOARD_PART_NUMBER
++	string
++	default "K53SC"
++
++config VGA_BIOS_ID
++	string
++	default "8086,0116"
++
++config DRAM_RESET_GATE_GPIO # FIXME: check this
++	int
++	default 60
++
++config USBDEBUG_HCD_INDEX # FIXME: check this
++	int
++	default 2
++endif
+diff --git a/src/mainboard/asustek_computer/k53sc/Kconfig.name b/src/mainboard/asustek_computer/k53sc/Kconfig.name
+new file mode 100644
+index 0000000000..15e9f8690d
+--- /dev/null
++++ b/src/mainboard/asustek_computer/k53sc/Kconfig.name
+@@ -0,0 +1,4 @@
++## SPDX-License-Identifier: GPL-2.0-only
++
++config BOARD_ASUSTEK_COMPUTER_K53SC
++	bool "K53SC"
+diff --git a/src/mainboard/asustek_computer/k53sc/Makefile.mk b/src/mainboard/asustek_computer/k53sc/Makefile.mk
+new file mode 100644
+index 0000000000..fb492d3583
+--- /dev/null
++++ b/src/mainboard/asustek_computer/k53sc/Makefile.mk
+@@ -0,0 +1,7 @@
++## SPDX-License-Identifier: GPL-2.0-only
++
++bootblock-y += early_init.c
++bootblock-y += gpio.c
++romstage-y += early_init.c
++romstage-y += gpio.c
++ramstage-$(CONFIG_MAINBOARD_USE_LIBGFXINIT) += gma-mainboard.ads
+diff --git a/src/mainboard/asustek_computer/k53sc/acpi/ec.asl b/src/mainboard/asustek_computer/k53sc/acpi/ec.asl
+new file mode 100644
+index 0000000000..45f704a776
+--- /dev/null
++++ b/src/mainboard/asustek_computer/k53sc/acpi/ec.asl
+@@ -0,0 +1,9 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++Device(EC)
++{
++	Name (_HID, EISAID("PNP0C09"))
++	Name (_UID, 0)
++	Name (_GPE, 27)
++/* FIXME: EC support */
++}
+diff --git a/src/mainboard/asustek_computer/k53sc/acpi/platform.asl b/src/mainboard/asustek_computer/k53sc/acpi/platform.asl
+new file mode 100644
+index 0000000000..2d24bbd9b9
+--- /dev/null
++++ b/src/mainboard/asustek_computer/k53sc/acpi/platform.asl
+@@ -0,0 +1,12 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++Method(_WAK, 1)
++{
++	/* FIXME: EC support  */
++	Return(Package() {0, 0})
++}
++
++Method(_PTS,1)
++{
++	/* FIXME: EC support  */
++}
+diff --git a/src/mainboard/asustek_computer/k53sc/acpi/superio.asl b/src/mainboard/asustek_computer/k53sc/acpi/superio.asl
+new file mode 100644
+index 0000000000..55b1db5b11
+--- /dev/null
++++ b/src/mainboard/asustek_computer/k53sc/acpi/superio.asl
+@@ -0,0 +1,3 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++#include <drivers/pc80/pc/ps2_controller.asl>
+diff --git a/src/mainboard/asustek_computer/k53sc/acpi_tables.c b/src/mainboard/asustek_computer/k53sc/acpi_tables.c
+new file mode 100644
+index 0000000000..e2759659bf
+--- /dev/null
++++ b/src/mainboard/asustek_computer/k53sc/acpi_tables.c
+@@ -0,0 +1,16 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++#include <acpi/acpi_gnvs.h>
++#include <soc/nvs.h>
++
++/* FIXME: check this function.  */
++void mainboard_fill_gnvs(struct global_nvs *gnvs)
++{
++	/* The lid is open by default. */
++	gnvs->lids = 1;
++
++	/* Temperature at which OS will shutdown */
++	gnvs->tcrt = 100;
++	/* Temperature at which OS will throttle CPU */
++	gnvs->tpsv = 90;
++}
+diff --git a/src/mainboard/asustek_computer/k53sc/board_info.txt b/src/mainboard/asustek_computer/k53sc/board_info.txt
+new file mode 100644
+index 0000000000..cdbf8b838a
+--- /dev/null
++++ b/src/mainboard/asustek_computer/k53sc/board_info.txt
+@@ -0,0 +1,4 @@
++Category: laptop
++ROM protocol: SPI
++Flashrom support: n
++FIXME: put ROM package, ROM socketed, Release year
+diff --git a/src/mainboard/asustek_computer/k53sc/devicetree.cb b/src/mainboard/asustek_computer/k53sc/devicetree.cb
+new file mode 100644
+index 0000000000..0cbbfb8e22
+--- /dev/null
++++ b/src/mainboard/asustek_computer/k53sc/devicetree.cb
+@@ -0,0 +1,111 @@
++chip northbridge/intel/sandybridge # FIXME: GPU registers may not always apply.
++	register "gfx" = "GMA_STATIC_DISPLAYS(1)"
++	register "gpu_cpu_backlight" = "0x00001312"
++	register "gpu_dp_b_hotplug" = "0"
++	register "gpu_dp_c_hotplug" = "4"
++	register "gpu_dp_d_hotplug" = "0"
++	register "gpu_panel_port_select" = "0"
++	register "gpu_panel_power_backlight_off_delay" = "2000"
++	register "gpu_panel_power_backlight_on_delay" = "2000"
++	register "gpu_panel_power_cycle_delay" = "5"
++	register "gpu_panel_power_down_delay" = "500"
++	register "gpu_panel_power_up_delay" = "600"
++	register "gpu_pch_backlight" = "0x13121312"
++	register "spd_addresses" = "{0x50, 0x51, 0x52, 0x53}" # FIXME: Put proper SPD map here"
++	device domain 0x0 on
++		device ref host_bridge on
++			subsystemid 0x1043 0x1277
++		end
++		device ref peg10 on
++			subsystemid 0x1043 0x1277
++		end
++		device ref igd on
++			subsystemid 0x1043 0x1682
++		end
++		chip southbridge/intel/bd82x6x # Intel 6 Series Cougar Point PCH
++			register "docking_supported" = "1"
++			register "gen1_dec" = "0x00000000"
++			register "gen2_dec" = "0x00000000"
++			register "gen3_dec" = "0x002c0251"
++			register "gen4_dec" = "0x00000000"
++			register "gpi11_routing" = "2"
++			register "pcie_hotplug_map" = "{ 0, 0, 0, 0, 0, 0, 0, 0 }"
++			register "pcie_port_coalesce" = "1"
++			register "sata_interface_speed_support" = "0x3"
++			register "sata_port_map" = "0x1"
++			register "spi_lvscc" = "0x2005"
++			register "spi_uvscc" = "0x2005"
++			register "usb_port_config" = "{
++				{1, 7, 0},
++				{1, 7, 0},
++				{1, 1, 1},
++				{1, 1, 1},
++				{1, 0, 2},
++				{0, 0, 2},
++				{0, 0, 3},
++				{0, 0, 3},
++				{1, 1, 4},
++				{1, 1, 4},
++				{0, 0, 5},
++				{1, 0, 5},
++				{1, 0, 6},
++				{1, 0, 6},
++			}"
++			device ref mei1 on
++				subsystemid 0x1043 0x1277
++			end
++			device ref mei2 off
++			end
++			device ref me_ide_r off
++			end
++			device ref me_kt off
++			end
++			device ref gbe off
++			end
++			device ref ehci2 on
++				subsystemid 0x1043 0x1277
++			end
++			device ref hda on
++				subsystemid 0x1043 0x1ac3
++			end
++			device ref pcie_rp1 on
++				subsystemid 0x1043 0x1277
++			end
++			device ref pcie_rp2 on
++				subsystemid 0x1043 0x1277
++			end
++			device ref pcie_rp3 off
++			end
++			device ref pcie_rp4 on
++				subsystemid 0x1043 0x1277
++			end
++			device ref pcie_rp5 off
++			end
++			device ref pcie_rp6 on
++				subsystemid 0x1043 0x1277
++			end
++			device ref pcie_rp7 off
++			end
++			device ref pcie_rp8 off
++			end
++			device ref ehci1 on
++				subsystemid 0x1043 0x1277
++			end
++			device ref pci_bridge off
++			end
++			device ref lpc on
++				subsystemid 0x1043 0x1277
++			end
++			device ref sata1 on
++				subsystemid 0x1043 0x1277
++			end
++			device ref smbus on
++				subsystemid 0x1043 0x1277
++			end
++			device ref sata2 off
++			end
++			device ref thermal off
++			end
++		end
++	end
++end
+diff --git a/src/mainboard/asustek_computer/k53sc/dsdt.asl b/src/mainboard/asustek_computer/k53sc/dsdt.asl
+new file mode 100644
+index 0000000000..cee4939fe0
+--- /dev/null
++++ b/src/mainboard/asustek_computer/k53sc/dsdt.asl
+@@ -0,0 +1,29 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++#define BRIGHTNESS_UP \_SB.PCI0.GFX0.INCB
++#define BRIGHTNESS_DOWN \_SB.PCI0.GFX0.DECB
++#include <acpi/acpi.h>
++
++DefinitionBlock(
++	"dsdt.aml",
++	"DSDT",
++	ACPI_DSDT_REV_2,
++	OEM_ID,
++	ACPI_TABLE_CREATOR,
++	0x20141018
++)
++{
++	#include <acpi/dsdt_top.asl>
++	#include "acpi/platform.asl"
++	#include <cpu/intel/common/acpi/cpu.asl>
++	#include <southbridge/intel/common/acpi/platform.asl>
++	#include <southbridge/intel/bd82x6x/acpi/globalnvs.asl>
++	#include <southbridge/intel/common/acpi/sleepstates.asl>
++
++	Device (\_SB.PCI0)
++	{
++		#include <northbridge/intel/sandybridge/acpi/sandybridge.asl>
++		#include <drivers/intel/gma/acpi/default_brightness_levels.asl>
++		#include <southbridge/intel/bd82x6x/acpi/pch.asl>
++	}
++}
+diff --git a/src/mainboard/asustek_computer/k53sc/early_init.c b/src/mainboard/asustek_computer/k53sc/early_init.c
+new file mode 100644
+index 0000000000..8e75f859aa
+--- /dev/null
++++ b/src/mainboard/asustek_computer/k53sc/early_init.c
+@@ -0,0 +1,11 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++#include <bootblock_common.h>
++#include <device/pci_ops.h>
++#include <southbridge/intel/bd82x6x/pch.h>
++
++void bootblock_mainboard_early_init(void)
++{
++	pci_write_config16(PCI_DEV(0, 0x1f, 0), 0x82, 0x1c0f);
++	pci_write_config16(PCI_DEV(0, 0x1f, 0), 0x80, 0x0000);
++}
+diff --git a/src/mainboard/asustek_computer/k53sc/gma-mainboard.ads b/src/mainboard/asustek_computer/k53sc/gma-mainboard.ads
+new file mode 100644
+index 0000000000..133fde5f0c
+--- /dev/null
++++ b/src/mainboard/asustek_computer/k53sc/gma-mainboard.ads
+@@ -0,0 +1,23 @@
++-- SPDX-License-Identifier: GPL-2.0-or-later
++
++with HW.GFX.GMA;
++with HW.GFX.GMA.Display_Probing;
++
++use HW.GFX.GMA;
++use HW.GFX.GMA.Display_Probing;
++
++private package GMA.Mainboard is
++
++   -- FIXME: check this
++   ports : constant Port_List :=
++     (DP1,
++      DP2,
++      DP3,
++      HDMI1,
++      HDMI2,
++      HDMI3,
++      Analog,
++      LVDS,
++      eDP);
++
++end GMA.Mainboard;
+diff --git a/src/mainboard/asustek_computer/k53sc/gpio.c b/src/mainboard/asustek_computer/k53sc/gpio.c
+new file mode 100644
+index 0000000000..590242ec18
+--- /dev/null
++++ b/src/mainboard/asustek_computer/k53sc/gpio.c
+@@ -0,0 +1,208 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++#include <southbridge/intel/common/gpio.h>
++
++static const struct pch_gpio_set1 pch_gpio_set1_mode = {
++	.gpio0 = GPIO_MODE_GPIO,
++	.gpio1 = GPIO_MODE_GPIO,
++	.gpio2 = GPIO_MODE_NATIVE,
++	.gpio3 = GPIO_MODE_GPIO,
++	.gpio4 = GPIO_MODE_GPIO,
++	.gpio5 = GPIO_MODE_GPIO,
++	.gpio6 = GPIO_MODE_GPIO,
++	.gpio7 = GPIO_MODE_GPIO,
++	.gpio8 = GPIO_MODE_GPIO,
++	.gpio9 = GPIO_MODE_NATIVE,
++	.gpio10 = GPIO_MODE_NATIVE,
++	.gpio11 = GPIO_MODE_GPIO,
++	.gpio12 = GPIO_MODE_GPIO,
++	.gpio13 = GPIO_MODE_GPIO,
++	.gpio14 = GPIO_MODE_NATIVE,
++	.gpio15 = GPIO_MODE_GPIO,
++	.gpio16 = GPIO_MODE_GPIO,
++	.gpio17 = GPIO_MODE_GPIO,
++	.gpio18 = GPIO_MODE_NATIVE,
++	.gpio19 = GPIO_MODE_GPIO,
++	.gpio20 = GPIO_MODE_NATIVE,
++	.gpio21 = GPIO_MODE_GPIO,
++	.gpio22 = GPIO_MODE_GPIO,
++	.gpio23 = GPIO_MODE_NATIVE,
++	.gpio24 = GPIO_MODE_GPIO,
++	.gpio25 = GPIO_MODE_NATIVE,
++	.gpio26 = GPIO_MODE_NATIVE,
++	.gpio27 = GPIO_MODE_GPIO,
++	.gpio28 = GPIO_MODE_GPIO,
++	.gpio29 = GPIO_MODE_GPIO,
++	.gpio30 = GPIO_MODE_NATIVE,
++	.gpio31 = GPIO_MODE_NATIVE,
++};
++
++static const struct pch_gpio_set1 pch_gpio_set1_direction = {
++	.gpio0 = GPIO_DIR_INPUT,
++	.gpio1 = GPIO_DIR_INPUT,
++	.gpio3 = GPIO_DIR_INPUT,
++	.gpio4 = GPIO_DIR_INPUT,
++	.gpio5 = GPIO_DIR_INPUT,
++	.gpio6 = GPIO_DIR_INPUT,
++	.gpio7 = GPIO_DIR_INPUT,
++	.gpio8 = GPIO_DIR_OUTPUT,
++	.gpio11 = GPIO_DIR_INPUT,
++	.gpio12 = GPIO_DIR_OUTPUT,
++	.gpio13 = GPIO_DIR_INPUT,
++	.gpio15 = GPIO_DIR_OUTPUT,
++	.gpio16 = GPIO_DIR_OUTPUT,
++	.gpio17 = GPIO_DIR_INPUT,
++	.gpio19 = GPIO_DIR_INPUT,
++	.gpio21 = GPIO_DIR_INPUT,
++	.gpio22 = GPIO_DIR_OUTPUT,
++	.gpio24 = GPIO_DIR_OUTPUT,
++	.gpio27 = GPIO_DIR_INPUT,
++	.gpio28 = GPIO_DIR_OUTPUT,
++	.gpio29 = GPIO_DIR_INPUT,
++};
++
++static const struct pch_gpio_set1 pch_gpio_set1_level = {
++	.gpio8 = GPIO_LEVEL_LOW,
++	.gpio12 = GPIO_LEVEL_LOW,
++	.gpio15 = GPIO_LEVEL_LOW,
++	.gpio16 = GPIO_LEVEL_LOW,
++	.gpio22 = GPIO_LEVEL_LOW,
++	.gpio24 = GPIO_LEVEL_LOW,
++	.gpio28 = GPIO_LEVEL_HIGH,
++};
++
++static const struct pch_gpio_set1 pch_gpio_set1_reset = {
++	.gpio24 = GPIO_RESET_RSMRST,
++};
++
++static const struct pch_gpio_set1 pch_gpio_set1_invert = {
++	.gpio1 = GPIO_INVERT,
++	.gpio3 = GPIO_INVERT,
++	.gpio11 = GPIO_INVERT,
++};
++
++static const struct pch_gpio_set1 pch_gpio_set1_blink = {
++};
++
++static const struct pch_gpio_set2 pch_gpio_set2_mode = {
++	.gpio32 = GPIO_MODE_NATIVE,
++	.gpio33 = GPIO_MODE_GPIO,
++	.gpio34 = GPIO_MODE_NATIVE,
++	.gpio35 = GPIO_MODE_GPIO,
++	.gpio36 = GPIO_MODE_GPIO,
++	.gpio37 = GPIO_MODE_GPIO,
++	.gpio38 = GPIO_MODE_GPIO,
++	.gpio39 = GPIO_MODE_GPIO,
++	.gpio40 = GPIO_MODE_NATIVE,
++	.gpio41 = GPIO_MODE_NATIVE,
++	.gpio42 = GPIO_MODE_NATIVE,
++	.gpio43 = GPIO_MODE_NATIVE,
++	.gpio44 = GPIO_MODE_NATIVE,
++	.gpio45 = GPIO_MODE_NATIVE,
++	.gpio46 = GPIO_MODE_NATIVE,
++	.gpio47 = GPIO_MODE_NATIVE,
++	.gpio48 = GPIO_MODE_GPIO,
++	.gpio49 = GPIO_MODE_GPIO,
++	.gpio50 = GPIO_MODE_GPIO,
++	.gpio51 = GPIO_MODE_GPIO,
++	.gpio52 = GPIO_MODE_GPIO,
++	.gpio53 = GPIO_MODE_GPIO,
++	.gpio54 = GPIO_MODE_GPIO,
++	.gpio55 = GPIO_MODE_GPIO,
++	.gpio56 = GPIO_MODE_NATIVE,
++	.gpio57 = GPIO_MODE_GPIO,
++	.gpio58 = GPIO_MODE_NATIVE,
++	.gpio59 = GPIO_MODE_NATIVE,
++	.gpio60 = GPIO_MODE_GPIO,
++	.gpio61 = GPIO_MODE_NATIVE,
++	.gpio62 = GPIO_MODE_NATIVE,
++	.gpio63 = GPIO_MODE_NATIVE,
++};
++
++static const struct pch_gpio_set2 pch_gpio_set2_direction = {
++	.gpio33 = GPIO_DIR_INPUT,
++	.gpio35 = GPIO_DIR_INPUT,
++	.gpio36 = GPIO_DIR_INPUT,
++	.gpio37 = GPIO_DIR_INPUT,
++	.gpio38 = GPIO_DIR_INPUT,
++	.gpio39 = GPIO_DIR_INPUT,
++	.gpio48 = GPIO_DIR_INPUT,
++	.gpio49 = GPIO_DIR_OUTPUT,
++	.gpio50 = GPIO_DIR_OUTPUT,
++	.gpio51 = GPIO_DIR_OUTPUT,
++	.gpio52 = GPIO_DIR_OUTPUT,
++	.gpio53 = GPIO_DIR_OUTPUT,
++	.gpio54 = GPIO_DIR_OUTPUT,
++	.gpio55 = GPIO_DIR_OUTPUT,
++	.gpio57 = GPIO_DIR_OUTPUT,
++	.gpio60 = GPIO_DIR_OUTPUT,
++};
++
++static const struct pch_gpio_set2 pch_gpio_set2_level = {
++	.gpio49 = GPIO_LEVEL_HIGH,
++	.gpio50 = GPIO_LEVEL_HIGH,
++	.gpio51 = GPIO_LEVEL_HIGH,
++	.gpio52 = GPIO_LEVEL_HIGH,
++	.gpio53 = GPIO_LEVEL_HIGH,
++	.gpio54 = GPIO_LEVEL_LOW,
++	.gpio55 = GPIO_LEVEL_HIGH,
++	.gpio57 = GPIO_LEVEL_HIGH,
++	.gpio60 = GPIO_LEVEL_HIGH,
++};
++
++static const struct pch_gpio_set2 pch_gpio_set2_reset = {
++};
++
++static const struct pch_gpio_set3 pch_gpio_set3_mode = {
++	.gpio64 = GPIO_MODE_NATIVE,
++	.gpio65 = GPIO_MODE_NATIVE,
++	.gpio66 = GPIO_MODE_NATIVE,
++	.gpio67 = GPIO_MODE_NATIVE,
++	.gpio68 = GPIO_MODE_GPIO,
++	.gpio69 = GPIO_MODE_GPIO,
++	.gpio70 = GPIO_MODE_NATIVE,
++	.gpio71 = GPIO_MODE_NATIVE,
++	.gpio72 = GPIO_MODE_GPIO,
++	.gpio73 = GPIO_MODE_GPIO,
++	.gpio74 = GPIO_MODE_NATIVE,
++	.gpio75 = GPIO_MODE_NATIVE,
++};
++
++static const struct pch_gpio_set3 pch_gpio_set3_direction = {
++	.gpio68 = GPIO_DIR_OUTPUT,
++	.gpio69 = GPIO_DIR_INPUT,
++	.gpio72 = GPIO_DIR_OUTPUT,
++	.gpio73 = GPIO_DIR_OUTPUT,
++};
++
++static const struct pch_gpio_set3 pch_gpio_set3_level = {
++	.gpio68 = GPIO_LEVEL_LOW,
++	.gpio72 = GPIO_LEVEL_HIGH,
++	.gpio73 = GPIO_LEVEL_LOW,
++};
++
++static const struct pch_gpio_set3 pch_gpio_set3_reset = {
++};
++
++const struct pch_gpio_map mainboard_gpio_map = {
++	.set1 = {
++		.mode		= &pch_gpio_set1_mode,
++		.direction	= &pch_gpio_set1_direction,
++		.level		= &pch_gpio_set1_level,
++		.blink		= &pch_gpio_set1_blink,
++		.invert		= &pch_gpio_set1_invert,
++		.reset		= &pch_gpio_set1_reset,
++	},
++	.set2 = {
++		.mode		= &pch_gpio_set2_mode,
++		.direction	= &pch_gpio_set2_direction,
++		.level		= &pch_gpio_set2_level,
++		.reset		= &pch_gpio_set2_reset,
++	},
++	.set3 = {
++		.mode		= &pch_gpio_set3_mode,
++		.direction	= &pch_gpio_set3_direction,
++		.level		= &pch_gpio_set3_level,
++		.reset		= &pch_gpio_set3_reset,
++	},
++};
+diff --git a/src/mainboard/asustek_computer/k53sc/hda_verb.c b/src/mainboard/asustek_computer/k53sc/hda_verb.c
+new file mode 100644
+index 0000000000..e4cafe9eb9
+--- /dev/null
++++ b/src/mainboard/asustek_computer/k53sc/hda_verb.c
+@@ -0,0 +1,33 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++#include <device/azalia_device.h>
++
++const u32 cim_verb_data[] = {
++	0x10ec0269,	/* Codec Vendor / Device ID: Realtek */
++	0x10431ac3,	/* Subsystem ID */
++	11,		/* Number of 4 dword sets */
++	AZALIA_SUBVENDOR(0, 0x10431ac3),
++	AZALIA_PIN_CFG(0, 0x12, 0x411111f0),
++	AZALIA_PIN_CFG(0, 0x14, 0x99130110),
++	AZALIA_PIN_CFG(0, 0x17, 0x411111f0),
++	AZALIA_PIN_CFG(0, 0x18, 0x04a11820),
++	AZALIA_PIN_CFG(0, 0x19, 0x99a3092f),
++	AZALIA_PIN_CFG(0, 0x1a, 0x411111f0),
++	AZALIA_PIN_CFG(0, 0x1b, 0x411111f0),
++	AZALIA_PIN_CFG(0, 0x1d, 0x40079a2d),
++	AZALIA_PIN_CFG(0, 0x1e, 0x411111f0),
++	AZALIA_PIN_CFG(0, 0x21, 0x0421101f),
++
++	0x80862805,	/* Codec Vendor / Device ID: Intel */
++	0x80860101,	/* Subsystem ID */
++	4,		/* Number of 4 dword sets */
++	AZALIA_SUBVENDOR(3, 0x80860101),
++	AZALIA_PIN_CFG(3, 0x05, 0x58560010),
++	AZALIA_PIN_CFG(3, 0x06, 0x18560020),
++	AZALIA_PIN_CFG(3, 0x07, 0x58560030),
++
++};
++
++const u32 pc_beep_verbs[0] = {};
++
++AZALIA_ARRAY_SIZES;
+diff --git a/src/mainboard/asustek_computer/k53sc/mainboard.c b/src/mainboard/asustek_computer/k53sc/mainboard.c
+new file mode 100644
+index 0000000000..881f45d6ad
+--- /dev/null
++++ b/src/mainboard/asustek_computer/k53sc/mainboard.c
+@@ -0,0 +1,53 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++#include <device/device.h>
++#include <drivers/intel/gma/int15.h>
++#include <ec/acpi/ec.h>
++#include <console/console.h>
++#include <pc80/keyboard.h>
++
++static void mainboard_init(struct device *dev)
++{
++	/* FIXME: trim this down or remove if necessary */
++	{
++		int i;
++		const u8 dmp[256] = {
++			/* 00 */ 0x0a, 0x80, 0x01, 0x00, 0x00, 0x81, 0x05, 0x21, 0x00, 0x00, 0x85, 0x72, 0x72, 0x72, 0x72, 0x72,
++			/* 10 */ 0x00, 0x00, 0x06, 0x00, 0x06, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++			/* 20 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++			/* 30 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++			/* 40 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++			/* 50 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++			/* 60 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++			/* 70 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++			/* 80 */ 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00,
++			/* 90 */ 0x00, 0x00, 0x00, 0x65, 0x03, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0xad, 0x00, 0x00, 0x00,
++			/* a0 */ 0x36, 0x58, 0x5a, 0x69, 0x2f, 0x2c, 0x36, 0x00, 0x01, 0x01, 0x00, 0x00, 0x02, 0x5c, 0x02, 0x5d,
++			/* b0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++			/* c0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++			/* d0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++			/* e0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++			/* f0 */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++		};
++
++		printk(BIOS_DEBUG, "Replaying EC dump ...");
++		for (i = 0; i < 256; i++)
++			ec_write(i, dmp[i]);
++		printk(BIOS_DEBUG, "done\n");
++	}
++	pc_keyboard_init(NO_AUX_DEVICE);
++}
++
++static void mainboard_enable(struct device *dev)
++{
++	dev->ops->init = mainboard_init;
++
++	/* FIXME: fix these values. */
++	install_intel_vga_int15_handler(GMA_INT15_ACTIVE_LFP_INT_LVDS,
++					GMA_INT15_PANEL_FIT_DEFAULT,
++					GMA_INT15_BOOT_DISPLAY_DEFAULT, 0);
++}
++
++struct chip_operations mainboard_ops = {
++	.enable_dev = mainboard_enable,
++};
+-- 
+2.55.0
+

@@ -1,0 +1,103 @@
+From 80e0baf379ed6d33e247466a503e615cb1668616 Mon Sep 17 00:00:00 2001
+From: manerger <filidog82@gmail.com>
+Date: Mon, 24 Aug 2026 22:54:10 +0200
+Subject: [PATCH 18/21] mb/asustek_computer/k53sc: Enable the discrete GT 520MX
+
+The board carries an NVIDIA GF119M (GeForce GT 520MX) on the PEG port,
+but autoport wrote the port off and nothing ever brought it up. It was
+off because Optimus had the GPU power-gated when autoport sampled the
+running stock firmware, not because the part is absent.
+
+The GPU is present and its rails are already up under coreboot: GPIO50
+and GPIO54 sit in exactly the state stock's _ON() method leaves them in
+(50 high, 54 low; _OFF() is the inverse), and GPIO17, the power-good
+input, reads high. So only the link was missing.
+
+Enabling the port alone is not enough for two reasons.
+
+Add the GPU's video BIOS, extracted from the stock image, as
+pci10de,1051.rom. On this laptop the discrete GPU has no ROM of its own -
+its VBIOS lives in the system firmware - so nouveau finds nothing and
+fails: "Invalid PCI ROM header signature", "bios: unable to locate usable
+image", "probe with driver nouveau failed with error -22". With the ROM
+in CBFS, pci_rom_ssdt() emits an ACPI _ROM method for it, which is the
+source nouveau uses on Optimus systems. VGA_ROM_RUN stays off; the ROM is
+only published, never executed.
+
+Select ONBOARD_VGA_IS_PRIMARY. Adding a second display-class device makes
+coreboot hand primary-display duty to the last adapter found, which is the
+discrete GPU - and that has no panel wired to it. Without this the machine
+boots with no display at all on either LVDS or HDMI: the kernel logs
+"pci 0000:01:00.0: vgaarb: setting as boot VGA device" and i915 never
+initialises.
+
+Drop the placeholder VGA_BIOS_ID of "8086,0116", which named a Sandy
+Bridge iGPU that is not in this machine and had no file behind it.
+
+Tested on an ASUS K53SC with an i7-3840QM:
+
+  nouveau 0000:01:00.0: NVIDIA GF119 (0d9110a1)
+  nouveau 0000:01:00.0: bios: version 75.19.58.00.06
+  nouveau 0000:01:00.0: fb: 1024 MiB DDR3
+  [drm] Initialized nouveau 1.4.2 for 0000:01:00.0 on minor 0
+
+The panel and HDMI still come up on the integrated GPU, and a second
+render node appears. nouveau reports no CRTC, which is correct: the
+discrete GPU has no display outputs on this board and is render-offload
+only.
+
+Note the VBIOS is a binary blob taken from the vendor firmware and is
+committed here for a working local build; it is not suitable for
+upstream.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ src/mainboard/asustek_computer/k53sc/Kconfig       | 7 +++++--
+ src/mainboard/asustek_computer/k53sc/devicetree.cb | 6 +++++-
+ 2 files changed, 10 insertions(+), 3 deletions(-)
+
+diff --git a/src/mainboard/asustek_computer/k53sc/Kconfig b/src/mainboard/asustek_computer/k53sc/Kconfig
+index 99e1584f83..504b9bbe22 100644
+--- a/src/mainboard/asustek_computer/k53sc/Kconfig
++++ b/src/mainboard/asustek_computer/k53sc/Kconfig
+@@ -14,6 +14,7 @@ config BOARD_SPECIFIC_OPTIONS
+ 	select MAINBOARD_HAS_LIBGFXINIT
+ 	select GFX_GMA_PANEL_1_ON_LVDS
+ 	select NORTHBRIDGE_INTEL_SANDYBRIDGE
++	select ONBOARD_VGA_IS_PRIMARY
+ 	select SERIRQ_CONTINUOUS_MODE
+ 	select SOUTHBRIDGE_INTEL_BD82X6X
+ 	select SYSTEM_TYPE_LAPTOP
+@@ -28,8 +29,10 @@ config MAINBOARD_PART_NUMBER
+ 	default "K53SC"
+ 
+ config VGA_BIOS_ID
+-	string
+-	default "8086,0116"
++	default "10de,1051"
++
++config VGA_BIOS_FILE
++	default "src/mainboard/asustek_computer/k53sc/dgpu-vbios.rom"
+ 
+ config INTEL_GMA_VBT_FILE
+ 	default "src/mainboard/asustek_computer/k53sc/data.vbt"
+diff --git a/src/mainboard/asustek_computer/k53sc/devicetree.cb b/src/mainboard/asustek_computer/k53sc/devicetree.cb
+index 2bebc64e79..058b8fce0e 100644
+--- a/src/mainboard/asustek_computer/k53sc/devicetree.cb
++++ b/src/mainboard/asustek_computer/k53sc/devicetree.cb
+@@ -16,7 +16,11 @@ chip northbridge/intel/sandybridge # FIXME: GPU registers may not always apply.
+ 		device ref host_bridge on
+ 			subsystemid 0x1043 0x1277
+ 		end
+-		device ref peg10 off
++		# NVIDIA GT 520MX. The GPU is present and its rails are already up:
++		# GPIO50/GPIO54 sit in the state stock's _ON() leaves them in, and
++		# GPIO17 (power good) reads high. autoport wrote this off because
++		# Optimus had the GPU power-gated when it sampled the machine.
++		device ref peg10 on
+ 			subsystemid 0x1043 0x1277
+ 		end
+ 		device ref igd on
+-- 
+2.55.0
+
