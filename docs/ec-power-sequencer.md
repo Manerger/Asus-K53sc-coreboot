@@ -134,6 +134,9 @@ S3 after the fix
 ```
 
 Poweroff powers the machine off. Suspend genuinely suspends, with the fan
-stopping, and resumes cleanly. An orderly power-down leaves the board bootable —
+stopping, and resumes cleanly. Verified on both an i3-2310M (Sandy Bridge) and
+an i7-3840QM (Ivy Bridge) from the same image, so the fix is CPU-independent -
+as expected, since the EC's power sequencing does not depend on which CPU is
+fitted. An orderly power-down leaves the board bootable —
 no boot loop, no battery pull — confirming that the unbootable state was always
 a consequence of force-killing a hung machine.
