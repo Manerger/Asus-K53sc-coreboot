@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+"""Toggle the K53SC function row when the Fn key is TAPPED on its own.
+
+Measured on this keyboard:
+  Fn tapped alone -> scancodes 0x50 then 0x51 (~5 ms apart), no keycode,
+                     and it does NOT autorepeat when held.
+  Fn + F5/F6      -> 0x23 then 0x14 (indistinguishable from each other)
+  Fn + F10 etc.   -> the Fn pair, then ~190 ms later a key event on the
+                     "Asus WMI hotkeys" device via the EC's ACPI query path.
+
+So a bare tap is "the Fn pair, followed by nothing on ANY input device within
+the settle window". Watching only the keyboard would misfire on Fn+F10,
+because that combo's key event lands on the WMI device instead.
+"""
+import fcntl, glob, os, select, struct, subprocess, sys, time
+
+FMT = "llHHi"; SZ = struct.calcsize(FMT)
+FN_FIRST, FN_SECOND = 0x50, 0x51
+PAIR_WINDOW = 0.050      # 0x50 -> 0x51 arrive ~5 ms apart
+SETTLE      = 0.300      # Fn+F10's WMI event lands ~190 ms later
+TOGGLE      = "/usr/local/bin/k53sc-fnrow"
+
+# Keys Plasma does not bind by default, so we act on them ourselves.
+KEY_WLAN, KEY_DISPLAY_OFF = 238, 245
+BL = "/sys/class/backlight/intel_backlight"
+DEBUG = os.environ.get("K53SC_FND_DEBUG") == "1"
+
+def _read(path, default=None):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+def blank_toggle():
+    """F7: backlight to 0, or restore what it was."""
+    cur = _read(BL + "/brightness")
+    mx = _read(BL + "/max_brightness")
+    if cur is None:
+        return
+    saved = "/run/k53sc-fnd.backlight"
+    try:
+        if int(cur) > 0:
+            with open(saved, "w") as f:
+                f.write(cur)
+            with open(BL + "/brightness", "w") as f:
+                f.write("0")
+        else:
+            prev = _read(saved) or mx or "100"
+            with open(BL + "/brightness", "w") as f:
+                f.write(prev)
+    except OSError as e:
+        print("backlight: %s" % e, flush=True)
+
+def wifi_toggle():
+    """F2: soft-block / unblock wireless."""
+    out = subprocess.run(["rfkill", "list", "wlan"], capture_output=True, text=True)
+    blocked = "Soft blocked: yes" in out.stdout
+    subprocess.run(["rfkill", "unblock" if blocked else "block", "wlan"], check=False)
+    print("wifi -> %s" % ("on" if blocked else "off"), flush=True)
+
+WANT = ("AT Translated Set 2 keyboard", "Asus WMI hotkeys", "Video Bus")
+
+def devices():
+    out = []
+    for path in sorted(glob.glob("/dev/input/event*")):
+        name_file = "/sys/class/input/%s/device/name" % os.path.basename(path)
+        try:
+            with open(name_file) as f:
+                name = f.read().strip()
+        except OSError:
+            continue
+        if any(w in name for w in WANT):
+            try:
+                out.append((os.open(path, os.O_RDONLY | os.O_NONBLOCK), path, name))
+            except OSError:
+                pass
+    return out
+
+def main():
+    devs = devices()
+    if not devs:
+        sys.exit("no input devices matched")
+    fds = {fd: name for fd, _, name in devs}
+    is_kbd = {fd: ("AT Translated" in name) for fd, _, name in devs}
+    print("watching: %s" % ", ".join(n for _, _, n in devs), flush=True)
+
+    saw_first = 0.0        # time 0x50 was seen
+    pending   = 0.0        # time the Fn pair completed; 0 = nothing pending
+
+    while True:
+        timeout = None
+        if pending:
+            timeout = max(0.0, SETTLE - (time.time() - pending))
+        r, _, _ = select.select(list(fds), [], [], timeout)
+
+        for fd in r:
+            try:
+                data = os.read(fd, SZ * 64)
+            except OSError:
+                continue
+            for i in range(0, len(data) - SZ + 1, SZ):
+                sec, usec, typ, code, value = struct.unpack(FMT, data[i:i+SZ])
+                if typ not in (0x01, 0x04):     # EV_KEY / EV_MSC only
+                    continue
+                now = time.time()
+
+                if typ == 0x04 and is_kbd[fd] and value == FN_FIRST:
+                    saw_first = now
+                    continue
+                if typ == 0x04 and is_kbd[fd] and value == FN_SECOND \
+                        and saw_first and now - saw_first < PAIR_WINDOW:
+                    pending = now          # a complete Fn pair - start settling
+                    saw_first = 0.0
+                    continue
+
+                # our own extra handlers, on key-press only
+                if typ == 0x01 and value == 1:
+                    if DEBUG:
+                        print("key %d from %s" % (code, fds[fd]), flush=True)
+                    if code == KEY_DISPLAY_OFF:
+                        blank_toggle()
+                    elif code == KEY_WLAN:
+                        wifi_toggle()
+
+                # anything else at all cancels: it was a combo, not a tap
+                pending = 0.0
+                saw_first = 0.0
+
+        if pending and time.time() - pending >= SETTLE:
+            pending = 0.0
+            try:
+                subprocess.run([TOGGLE, "toggle"], check=False,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                print("Fn tap -> toggled", flush=True)
+            except Exception as e:
+                print("toggle failed: %s" % e, flush=True)
+
+if __name__ == "__main__":
+    main()

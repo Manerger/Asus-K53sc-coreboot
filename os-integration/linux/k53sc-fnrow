@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""Switch the K53SC function row between media keys and plain F1-F12.
+
+The keys are labelled with media/brightness icons, so 'media' is the default
+(set at boot by /etc/udev/hwdb.d/61-k53sc-fnrow.hwdb). This flips them live.
+
+Why not use Fn?  On this keyboard Fn+F5 and Fn+F6 emit the identical scancode
+pair (0x23 then 0x14), so the Fn layer cannot address individual keys. An
+Apple-style Fn-inverts-the-row scheme is physically impossible here; a toggle
+is the closest equivalent.
+
+  k53sc-fnrow media | function | toggle | status
+"""
+import fcntl, os, struct, sys, glob
+
+EVIOCSKEYCODE = 0x40084504          # _IOW('E', 0x04, int[2])
+STATE = "/run/k53sc-fnrow.state"
+
+#            scancode : (media keycode, plain keycode, label)
+KEYS = {
+    0x3b: ( 59, 59, "F1  (plain; sleep on Fn+F1)"),
+    0x3c: ( 60, 60, "F2  (plain; wifi on Fn+F2)"),
+    0x3d: ( 61, 61, "F3  (unlabelled)"),
+    0x3e: ( 62, 62, "F4  (unlabelled)"),
+    0x3f: (224, 63, "F5  brightness down"),
+    0x40: (225, 64, "F6  brightness up"),
+    0x41: (245, 65, "F7  display off"),
+    0x42: (227, 66, "F8  switch video mode"),
+    0x43: (530, 67, "F9  touchpad toggle"),
+    0x44: (113, 68, "F10 mute"),
+    0x57: (114, 87, "F11 volume down"),
+    0x58: (115, 88, "F12 volume up"),
+}
+
+def keyboards():
+    """Every atkbd-backed event device (survives event-number changes)."""
+    found = []
+    for path in sorted(glob.glob("/dev/input/event*")):
+        sysname = "/sys/class/input/%s/device/name" % os.path.basename(path)
+        try:
+            with open(sysname) as f:
+                if "AT Translated Set 2 keyboard" in f.read():
+                    found.append(path)
+        except OSError:
+            pass
+    return found
+
+def apply(mode):
+    devs = keyboards()
+    if not devs:
+        sys.exit("no AT keyboard found")
+    idx = 0 if mode == "media" else 1
+    for dev in devs:
+        fd = os.open(dev, os.O_RDWR)
+        try:
+            for scan, entry in KEYS.items():
+                fcntl.ioctl(fd, EVIOCSKEYCODE, struct.pack("II", scan, entry[idx]))
+        finally:
+            os.close(fd)
+    try:
+        with open(STATE, "w") as f:
+            f.write(mode + "\n")
+    except OSError:
+        pass
+    return devs
+
+def current():
+    try:
+        with open(STATE) as f:
+            return f.read().strip()
+    except OSError:
+        return "media"          # hwdb default at boot
+
+def main():
+    arg = sys.argv[1] if len(sys.argv) > 1 else "toggle"
+    if arg == "status":
+        print("function row: %s" % current())
+        for scan, e in sorted(KEYS.items()):
+            print("  0x%02x  %s" % (scan, e[2]))
+        return
+    if arg == "toggle":
+        arg = "function" if current() == "media" else "media"
+    if arg not in ("media", "function"):
+        sys.exit("usage: k53sc-fnrow media|function|toggle|status")
+    devs = apply(arg)
+    print("function row -> %s   (%s)" % (arg, ", ".join(devs)))
+
+if __name__ == "__main__":
+    main()

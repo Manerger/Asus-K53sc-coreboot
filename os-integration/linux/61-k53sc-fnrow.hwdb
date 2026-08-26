@@ -1,0 +1,27 @@
+# ASUS K53SC - function row defaults to the printed media/brightness keys
+#
+# The keys carry media icons, and the Fn layer cannot be used: Fn+F5 and Fn+F6
+# emit the identical scancode pair (0x23 then 0x14), so no keymap can tell them
+# apart. An Apple-style "Fn inverts the row" scheme is impossible on this
+# keyboard. Instead the plain row does the printed functions by default, and
+# `k53sc-fnrow toggle` flips it to real F1-F12 when you need them.
+#
+# Background: this unit's EC adjusts brightness privately via LCD_BL_PWM and
+# never raises the _Q0E/_Q0F ACPI queries stock's DSDT declares - they are
+# vestigial here. Under coreboot the GPU drives the panel, so routing the
+# keypress to intel_backlight is the working path.
+#
+# F1/F2 are deliberately NOT remapped: sleep and wifi-kill are destructive if
+# hit by accident (mid-game, say). They stay available on Fn+F1 / Fn+F2, which
+# reach the EC ACPI/WMI path independently of this keymap.
+# F3/F4 are unlabelled on this unit and are left as ordinary function keys.
+
+evdev:atkbd:dmi:bvn*:bvr*:bd*:svnASUSTeKComputerInc.:pnK53SC:*
+ KEYBOARD_KEY_3f=brightnessdown
+ KEYBOARD_KEY_40=brightnessup
+ KEYBOARD_KEY_41=display_off
+ KEYBOARD_KEY_42=switchvideomode
+ KEYBOARD_KEY_43=touchpad_toggle
+ KEYBOARD_KEY_44=mute
+ KEYBOARD_KEY_57=volumedown
+ KEYBOARD_KEY_58=volumeup

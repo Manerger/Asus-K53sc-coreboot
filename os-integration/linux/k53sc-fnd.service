@@ -1,0 +1,12 @@
+[Unit]
+Description=K53SC - toggle the function row when Fn is tapped alone
+After=systemd-udev-settle.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/k53sc-fnd
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
