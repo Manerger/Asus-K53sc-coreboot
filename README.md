@@ -18,9 +18,22 @@ that applies to upstream coreboot, which is what you actually need to build it.
 - **Both GPUs** — the discrete GeForce GT 520MX works under nouveau via PRIME offload
 - **Suspend (S3) and poweroff (S5)** — see below; these were the hard part
 
+## The function row
+
+The brightness and media keys work, but through an OS-side keymap rather than
+firmware — see [`os-integration/`](os-integration/). That is a property of this
+unit, not a gap in the port: its EC adjusts the panel privately via `LCD_BL_PWM`
+and never raises the `_Q0E`/`_Q0F` ACPI queries its DSDT declares, so **no** OS
+is told about those keys. Under stock firmware the screen changed but nothing
+was reported, which is the same thing seen from the other side.
+
+The media row is the default and **tapping Fn on its own** flips it to real
+F1–F12. Fn+F5/F6 emit an identical scancode pair, so an Apple-style
+"Fn inverts the row" scheme is impossible here; a toggle is the closest
+equivalent. Windows gets the same behaviour from an AutoHotkey script.
+
 ## What does not
 
-- Brightness keys: the EC never raises the ACPI queries for them
 
 Thermal management works: the EC's trip points read 88/90 °C, the same as the
 vendor firmware. (An earlier 103/105 °C reading was an artifact of `asus_wmi`
