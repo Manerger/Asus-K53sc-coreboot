@@ -32,13 +32,19 @@ F1–F12. Fn+F5/F6 emit an identical scancode pair, so an Apple-style
 "Fn inverts the row" scheme is impossible here; a toggle is the closest
 equivalent. Windows gets the same behaviour from an AutoHotkey script.
 
-## What does not
+Thermal management works too: the EC's trip points read 88/90 °C, the same as
+the vendor firmware. (An earlier 103/105 °C reading was an artifact of
+`asus_wmi` not loading, because coreboot's DSDT had no `ATKD` device to bind
+to — not a firmware difference. Declaring `ATKD` resolved it.)
 
+## Known limitations
 
-Thermal management works: the EC's trip points read 88/90 °C, the same as the
-vendor firmware. (An earlier 103/105 °C reading was an artifact of `asus_wmi`
-not loading, because coreboot's DSDT had no `ATKD` device to bind to — not a
-firmware difference. Declaring `ATKD` resolved it.)
+- **Fn+F5 / Fn+F6 cannot be distinguished.** They emit an identical scancode
+  pair (`0x23` then `0x14`), so no keymap can separate them. This is why the
+  function row uses a toggle rather than an Fn layer. Everything those keys
+  should do is available on the plain row instead.
+- The two binary blobs are not included; see
+  [`BLOBS.md`](src/mainboard/asustek_computer/k53sc/BLOBS.md).
 
 ## The S3/S5 fix
 
