@@ -37,6 +37,39 @@ the vendor firmware. (An earlier 103/105 °C reading was an artifact of
 `asus_wmi` not loading, because coreboot's DSDT had no `ATKD` device to bind
 to — not a firmware difference. Declaring `ATKD` resolved it.)
 
+## Firmware options
+
+The board carries a CMOS option table, so a few things are switchable from a
+booted system without rebuilding:
+
+```bash
+nvramtool -a                    # list all options
+nvramtool -w dgpu=Disable       # turn the discrete GPU off, then reboot
+```
+
+`dgpu=Disable` clears the PEG10 device, and sandybridge's `disable_peg()` then
+clears `DEVEN_PEG10`. The port disappears from PCI entirely — verified on
+hardware: both `01:00.0` (the GPU) and `00:01.0` (the PEG bridge) are absent
+from `lspci`, so the GPU draws no power rather than merely being hidden.
+
+## Project status
+
+**This port is functionally complete and not expected to change much.**
+Everything listed under "what works" is verified on hardware. The items below
+were investigated and deliberately closed off, recorded here so nobody repeats
+the work:
+
+| not done | why |
+|---|---|
+| **UEFI Secure Boot** | Builds and fits, but only by disabling edk2's LVGL renderer (−195 KB) — the payload is otherwise ~49 KB too large. That trades a graphical firmware UI for protection that starts at the payload; coreboot itself is unverified, so anyone able to write the SPI flash bypasses it. Judged not worth it here. |
+| **fTPM** | Impossible on this hardware. Intel PTT needs ME 11+; this is ME 7 on Cougar Point. A discrete TPM footprint exists at `U6201` (28-pin LPC, with crystal `X6201`) but is unpopulated, and the boardview carries no BOM to identify the part. |
+| **CSM / legacy boot in edk2** | A CSM is a proprietary 16-bit blob shipped inside vendor UEFI firmware; edk2's UefiPayloadPkg has none and coreboot cannot supply one. Free flash space does not change this. Use the SeaBIOS payload for legacy boot. |
+| **Reclaiming ME flash space** | `me_cleaner` frees ~1.2 MiB inside the ME region, but it lands *below* `VENDOR_DATA` at `0x200000` — the EC's own firmware, at a hardware-fixed offset. `COREBOOT` already runs to the top of flash and is walled in beneath, so the space is unusable for CBFS. |
+
+The Intel ME **is** neutered on this machine (`me_cleaner -S`: 11 partitions to
+one, 1.5 MB of code to 47 KB, `AltMeDisable` set, MEI gone from the PCI bus) —
+done for the security benefit, not for space.
+
 ## Known limitations
 
 - **Fn+F5 / Fn+F6 cannot be distinguished.** They emit an identical scancode

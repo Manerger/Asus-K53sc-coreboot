@@ -1,4 +1,4 @@
-836932984e mb/asustek_computer/k53sc: Document the required binary blobs
+bd3ec68809 mb/asustek_computer/k53sc: Add a firmware toggle for the discrete GPU
 03cd593382 mb/asustek_computer/k53sc: Arm the EC power sequencer so S3/S5 work
 7e25e5d4dc mb/asustek_computer/k53sc: Consolidate the EC access primitives
 80e0baf379 mb/asustek_computer/k53sc: Enable the discrete GT 520MX

@@ -2,6 +2,9 @@
 
 #include <acpi/acpi.h>
 #include <device/device.h>
+#include <device/pci_def.h>
+#include <device/pci_ops.h>
+#include <option.h>
 #include <drivers/intel/gma/int15.h>
 #include <pc80/keyboard.h>
 
@@ -32,9 +35,39 @@ static void mainboard_init(struct device *dev)
 		k53sc_ec_enter_acpi_mode();
 }
 
+/*
+ * Allow the discrete GeForce GT 520MX to be switched off from firmware.
+ *
+ * Clearing the PEG10 device here is enough: sandybridge's disable_peg(), which
+ * runs later from northbridge_init(), sees the inactive bridge and clears
+ * DEVEN_PEG10. The port then disappears from PCI entirely rather than merely
+ * being hidden from the OS, so the GPU draws no power.
+ *
+ * Toggle it from a booted system with:
+ *   nvramtool -w dgpu=Disable    (or Enable), then reboot
+ */
+static void k53sc_configure_dgpu(void)
+{
+	struct device *peg;
+
+	if (get_uint_option("dgpu", 1))
+		return;
+
+	peg = pcidev_on_root(1, 0);
+	if (!peg) {
+		printk(BIOS_WARNING, "K53SC: PEG10 not found, cannot disable dGPU\n");
+		return;
+	}
+
+	peg->enabled = 0;
+	printk(BIOS_INFO, "K53SC: discrete GPU disabled via CMOS option\n");
+}
+
 static void mainboard_enable(struct device *dev)
 {
 	dev->ops->init = mainboard_init;
+
+	k53sc_configure_dgpu();
 
 	install_intel_vga_int15_handler(
 		GMA_INT15_ACTIVE_LFP_INT_LVDS,
