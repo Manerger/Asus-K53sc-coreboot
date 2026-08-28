@@ -1,7 +1,7 @@
 From 7e25e5d4dc03a6133a08a6f8685b3c64f7d3224e Mon Sep 17 00:00:00 2001
 From: manerger <filidog82@gmail.com>
 Date: Tue, 25 Aug 2026 10:06:46 +0200
-Subject: [PATCH 19/23] mb/asustek_computer/k53sc: Consolidate the EC access
+Subject: [PATCH 19/24] mb/asustek_computer/k53sc: Consolidate the EC access
  primitives
 
 The drain, wait-for-IBF and write helpers had been copied into three

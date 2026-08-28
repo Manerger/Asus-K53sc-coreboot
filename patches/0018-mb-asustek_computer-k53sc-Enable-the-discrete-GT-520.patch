@@ -1,7 +1,7 @@
 From 80e0baf379ed6d33e247466a503e615cb1668616 Mon Sep 17 00:00:00 2001
 From: manerger <filidog82@gmail.com>
 Date: Mon, 24 Aug 2026 22:54:10 +0200
-Subject: [PATCH 18/23] mb/asustek_computer/k53sc: Enable the discrete GT 520MX
+Subject: [PATCH 18/24] mb/asustek_computer/k53sc: Enable the discrete GT 520MX
 
 The board carries an NVIDIA GF119M (GeForce GT 520MX) on the PEG port,
 but autoport wrote the port off and nothing ever brought it up. It was

@@ -1,7 +1,7 @@
 From 5c82866644343fc591e7af672ac1e7e8a9929905 Mon Sep 17 00:00:00 2001
 From: manerger <filidog82@gmail.com>
 Date: Mon, 24 Aug 2026 17:52:29 +0200
-Subject: [PATCH 15/23] mb/asustek_computer/k53sc: Enable suspend to RAM
+Subject: [PATCH 15/24] mb/asustek_computer/k53sc: Enable suspend to RAM
 
 The board did not support S3 at all. Without HAVE_ACPI_RESUME,
 sleepstates.asl leaves SSFG at 0x09 so _S3 is never declared, and the OS

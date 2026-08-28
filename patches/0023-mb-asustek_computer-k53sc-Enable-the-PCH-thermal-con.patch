@@ -1,7 +1,7 @@
 From c959ff03df8aba0bbf2fccf2dc962687611e0751 Mon Sep 17 00:00:00 2001
 From: manerger <filidog82@gmail.com>
 Date: Fri, 28 Aug 2026 22:56:04 +0200
-Subject: [PATCH 23/23] mb/asustek_computer/k53sc: Enable the PCH thermal
+Subject: [PATCH 23/24] mb/asustek_computer/k53sc: Enable the PCH thermal
  controller
 
 autoport recorded "device ref thermal off", but the hardware does have the

@@ -1,7 +1,7 @@
 From bd3ec6880999e0f20f843e8d81d947fee4b236cf Mon Sep 17 00:00:00 2001
 From: manerger <filidog82@gmail.com>
 Date: Fri, 28 Aug 2026 11:51:00 +0200
-Subject: [PATCH 21/23] mb/asustek_computer/k53sc: Add a firmware toggle for
+Subject: [PATCH 21/24] mb/asustek_computer/k53sc: Add a firmware toggle for
  the discrete GPU
 
 The GeForce GT 520MX is useful but costs power, and there was no way to turn

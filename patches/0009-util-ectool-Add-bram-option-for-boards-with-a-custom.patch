@@ -1,7 +1,7 @@
 From 0a2e44be6f97544784fc30601b436f7c4753d768 Mon Sep 17 00:00:00 2001
 From: manerger <filidog82@gmail.com>
 Date: Wed, 12 Aug 2026 19:10:42 +0200
-Subject: [PATCH 09/23] util/ectool: Add --bram option for boards with a custom
+Subject: [PATCH 09/24] util/ectool: Add --bram option for boards with a custom
  index base
 
 ec_idx_read() hardcodes an LPC index base of 0x380 and uses a four-port

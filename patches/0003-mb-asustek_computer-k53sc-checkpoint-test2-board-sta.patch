@@ -1,7 +1,7 @@
 From b601c29fb021ae8f6820ea2b7d10f680302f00a3 Mon Sep 17 00:00:00 2001
 From: manerger <filidog82@gmail.com>
 Date: Thu, 6 Aug 2026 10:17:13 +0200
-Subject: [PATCH 03/23] mb/asustek_computer/k53sc: checkpoint test2 board state
+Subject: [PATCH 03/24] mb/asustek_computer/k53sc: checkpoint test2 board state
 
 ---
  src/mainboard/asustek_computer/k53sc/Kconfig | 1 +

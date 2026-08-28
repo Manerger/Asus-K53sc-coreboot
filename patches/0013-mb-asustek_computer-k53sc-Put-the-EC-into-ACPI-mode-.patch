@@ -1,7 +1,7 @@
 From 91e2a919cf77df14f01932168008f145ada9b3d8 Mon Sep 17 00:00:00 2001
 From: manerger <filidog82@gmail.com>
 Date: Mon, 24 Aug 2026 17:11:15 +0200
-Subject: [PATCH 13/23] mb/asustek_computer/k53sc: Put the EC into ACPI mode
+Subject: [PATCH 13/24] mb/asustek_computer/k53sc: Put the EC into ACPI mode
  from SMM
 
 The EC never delivered any event to the OS. Pressing an Fn hotkey produced

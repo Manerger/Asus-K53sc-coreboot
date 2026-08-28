@@ -1,7 +1,7 @@
 From a08b4f672ae077d0ccfc0c0f26685ac551893f91 Mon Sep 17 00:00:00 2001
 From: manerger <filidog82@gmail.com>
 Date: Fri, 28 Aug 2026 22:50:14 +0200
-Subject: [PATCH 22/23] mb/asustek_computer/k53sc: Enable the optical drive's
+Subject: [PATCH 22/24] mb/asustek_computer/k53sc: Enable the optical drive's
  SATA port
 
 sata_port_map was 0x1, so AHCI came up with "1/6 ports implemented" and
