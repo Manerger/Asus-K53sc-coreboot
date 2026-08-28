@@ -1,7 +1,7 @@
 From cca16109b4d0eba193b39ca7ccf5f62d8633375e Mon Sep 17 00:00:00 2001
 From: manerger <filidog82@gmail.com>
 Date: Sun, 23 Aug 2026 21:04:53 +0200
-Subject: [PATCH 10/21] mb/asustek_computer/k53sc: Add the factory VBT
+Subject: [PATCH 10/23] mb/asustek_computer/k53sc: Add the factory VBT
 
 Without a VBT in CBFS the OS driver has no panel or port description and
 falls back to defaults:

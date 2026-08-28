@@ -1,0 +1,41 @@
+From c959ff03df8aba0bbf2fccf2dc962687611e0751 Mon Sep 17 00:00:00 2001
+From: manerger <filidog82@gmail.com>
+Date: Fri, 28 Aug 2026 22:56:04 +0200
+Subject: [PATCH 23/23] mb/asustek_computer/k53sc: Enable the PCH thermal
+ controller
+
+autoport recorded "device ref thermal off", but the hardware does have the
+controller at D31:F6. Enable it so the device tree matches the board.
+
+This is a correctness fix rather than a functional one, and worth saying so:
+Linux will not bind a driver to it. intel_pch_thermal's PCI aliases begin at
+8086:8C24 (Lynx Point); there is none for Cougar Point's 8086:1C24, so the
+module loads and claims nothing. No new thermal zone appears.
+
+Verified on hardware: 00:1f.6 now enumerates as "6 Series/C200 Series Chipset
+Family Thermal Management Controller [8086:1c24]" with the board subsystem ID,
+and no driver bound. CPU temperature continues to come from x86_pkg_temp and
+the EC, as before.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ src/mainboard/asustek_computer/k53sc/devicetree.cb | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/mainboard/asustek_computer/k53sc/devicetree.cb b/src/mainboard/asustek_computer/k53sc/devicetree.cb
+index ec1f92de66..2d55e15fc8 100644
+--- a/src/mainboard/asustek_computer/k53sc/devicetree.cb
++++ b/src/mainboard/asustek_computer/k53sc/devicetree.cb
+@@ -110,7 +110,8 @@ chip northbridge/intel/sandybridge # FIXME: GPU registers may not always apply.
+ 			end
+ 			device ref sata2 off
+ 			end
+-			device ref thermal off
++			device ref thermal on
++				subsystemid 0x1043 0x1277
+ 			end
+ 		end
+ 	end
+-- 
+2.55.0
+

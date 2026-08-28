@@ -1,7 +1,7 @@
 From 9f4d0b8ef04858588941554013507323ea8b5981 Mon Sep 17 00:00:00 2001
 From: manerger <filidog82@gmail.com>
 Date: Thu, 6 Aug 2026 10:18:20 +0200
-Subject: [PATCH 04/21] mb/asustek_computer/k53sc: preserve vendor flash data
+Subject: [PATCH 04/23] mb/asustek_computer/k53sc: preserve vendor flash data
 
 ---
  src/mainboard/asustek_computer/k53sc/Kconfig   |  2 ++

@@ -1,7 +1,7 @@
 From 03cd5933826cc982b1cdb0f54c9e3d88e0d8777e Mon Sep 17 00:00:00 2001
 From: manerger <filidog82@gmail.com>
 Date: Tue, 25 Aug 2026 22:00:57 +0200
-Subject: [PATCH 20/21] mb/asustek_computer/k53sc: Arm the EC power sequencer
+Subject: [PATCH 20/23] mb/asustek_computer/k53sc: Arm the EC power sequencer
  so S3/S5 work
 
 Neither poweroff nor suspend worked on this board: both left the machine

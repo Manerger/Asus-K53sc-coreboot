@@ -1,7 +1,7 @@
 From 90061937f39e1852ca6a2443565686bccb11ea22 Mon Sep 17 00:00:00 2001
 From: manerger <filidog82@gmail.com>
 Date: Wed, 5 Aug 2026 22:41:47 +0200
-Subject: [PATCH 02/21] mb/asustek_computer/k53sc: sanitize initial bring-up
+Subject: [PATCH 02/23] mb/asustek_computer/k53sc: sanitize initial bring-up
 
 ---
  src/mainboard/asustek_computer/k53sc/Kconfig  |  8 ++--

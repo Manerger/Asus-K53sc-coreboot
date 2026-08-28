@@ -1,0 +1,46 @@
+From a08b4f672ae077d0ccfc0c0f26685ac551893f91 Mon Sep 17 00:00:00 2001
+From: manerger <filidog82@gmail.com>
+Date: Fri, 28 Aug 2026 22:50:14 +0200
+Subject: [PATCH 22/23] mb/asustek_computer/k53sc: Enable the optical drive's
+ SATA port
+
+sata_port_map was 0x1, so AHCI came up with "1/6 ports implemented" and
+ports 2-6 as DUMMY. The optical drive received power from its connector but
+the controller never scanned the port, so nothing enumerated and the drive
+looked dead.
+
+This is autoport's doing: no optical drive was fitted when it sampled the
+machine, so it recorded a single-port map. The same thing happened to peg10,
+which autoport wrote off because the GPU was power-gated at sample time.
+
+Set the map to 0x3 so port 1 is scanned as well. Verified on hardware:
+
+    ahci 0000:00:1f.2: 2/6 ports implemented (port mask 0x3)
+    ata2: SATA link up 1.5 Gbps
+    ata2.00: ATAPI: MATSHITADVD-RAM UJ8B0, 1.00, max UDMA/100
+    sr 1:0:0:0: Attached scsi CD-ROM sr0
+
+and the drive reads media: blkid reports the disc's iso9660 filesystem and a
+raw read off /dev/sr0 succeeds.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ src/mainboard/asustek_computer/k53sc/devicetree.cb | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/mainboard/asustek_computer/k53sc/devicetree.cb b/src/mainboard/asustek_computer/k53sc/devicetree.cb
+index 058b8fce0e..ec1f92de66 100644
+--- a/src/mainboard/asustek_computer/k53sc/devicetree.cb
++++ b/src/mainboard/asustek_computer/k53sc/devicetree.cb
+@@ -38,7 +38,7 @@ chip northbridge/intel/sandybridge # FIXME: GPU registers may not always apply.
+ 			register "pcie_hotplug_map" = "{ 0, 0, 0, 0, 0, 0, 0, 0 }"
+ 			register "pcie_port_coalesce" = "1"
+ 			register "sata_interface_speed_support" = "0x3"
+-			register "sata_port_map" = "0x1"
++			register "sata_port_map" = "0x3"
+ 			register "spi_lvscc" = "0x2005"
+ 			register "spi_uvscc" = "0x2005"
+ 			register "usb_port_config" = "{
+-- 
+2.55.0
+

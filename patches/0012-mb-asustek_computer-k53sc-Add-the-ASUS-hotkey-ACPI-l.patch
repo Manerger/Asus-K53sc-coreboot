@@ -1,7 +1,7 @@
 From 821676071ed8e875674801adfe6a424cfe440bf7 Mon Sep 17 00:00:00 2001
 From: manerger <filidog82@gmail.com>
 Date: Mon, 24 Aug 2026 16:16:15 +0200
-Subject: [PATCH 12/21] mb/asustek_computer/k53sc: Add the ASUS hotkey ACPI
+Subject: [PATCH 12/23] mb/asustek_computer/k53sc: Add the ASUS hotkey ACPI
  layer
 
 Report the SFUN mask the stock firmware reports for this model instead of

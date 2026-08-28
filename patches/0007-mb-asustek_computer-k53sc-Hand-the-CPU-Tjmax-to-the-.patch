@@ -1,7 +1,7 @@
 From 8986c7f9b073f41b3bf2173797886aad55110aab Mon Sep 17 00:00:00 2001
 From: manerger <filidog82@gmail.com>
 Date: Wed, 12 Aug 2026 21:28:25 +0200
-Subject: [PATCH 07/21] mb/asustek_computer/k53sc: Hand the CPU Tjmax to the EC
+Subject: [PATCH 07/23] mb/asustek_computer/k53sc: Hand the CPU Tjmax to the EC
  in bootblock
 
 The stock firmware's ITEPEI module reads the thermal control temperature

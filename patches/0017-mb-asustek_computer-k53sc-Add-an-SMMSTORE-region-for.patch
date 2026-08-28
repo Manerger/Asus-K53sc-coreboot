@@ -1,7 +1,7 @@
 From 53995e321cf318fa6c5fd6da8c9d72f1af713499 Mon Sep 17 00:00:00 2001
 From: manerger <filidog82@gmail.com>
 Date: Mon, 24 Aug 2026 22:19:44 +0200
-Subject: [PATCH 17/21] mb/asustek_computer/k53sc: Add an SMMSTORE region for
+Subject: [PATCH 17/23] mb/asustek_computer/k53sc: Add an SMMSTORE region for
  UEFI payloads
 
 Carve SMMSTORE out of BIOS_UNUSED so a UEFI payload has somewhere to keep

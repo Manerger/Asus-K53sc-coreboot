@@ -38,7 +38,7 @@ chip northbridge/intel/sandybridge # FIXME: GPU registers may not always apply.
 			register "pcie_hotplug_map" = "{ 0, 0, 0, 0, 0, 0, 0, 0 }"
 			register "pcie_port_coalesce" = "1"
 			register "sata_interface_speed_support" = "0x3"
-			register "sata_port_map" = "0x1"
+			register "sata_port_map" = "0x3"
 			register "spi_lvscc" = "0x2005"
 			register "spi_uvscc" = "0x2005"
 			register "usb_port_config" = "{
@@ -110,7 +110,8 @@ chip northbridge/intel/sandybridge # FIXME: GPU registers may not always apply.
 			end
 			device ref sata2 off
 			end
-			device ref thermal off
+			device ref thermal on
+				subsystemid 0x1043 0x1277
 			end
 		end
 	end

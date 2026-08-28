@@ -1,7 +1,7 @@
 From 28b8d9a7afe0173c6407700ecded64738c4f81ad Mon Sep 17 00:00:00 2001
 From: manerger <filidog82@gmail.com>
 Date: Mon, 24 Aug 2026 17:11:15 +0200
-Subject: [PATCH 14/21] mb/asustek_computer/k53sc: Deliver hotkey codes through
+Subject: [PATCH 14/23] mb/asustek_computer/k53sc: Deliver hotkey codes through
  _WED
 
 With the EC in ACPI mode the query handlers ran and ATKN was reached, but

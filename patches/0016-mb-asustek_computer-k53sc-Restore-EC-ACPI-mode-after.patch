@@ -1,7 +1,7 @@
 From 182e1a2e24d803d6f31e761179aae46dd0f6004b Mon Sep 17 00:00:00 2001
 From: manerger <filidog82@gmail.com>
 Date: Mon, 24 Aug 2026 18:04:40 +0200
-Subject: [PATCH 16/21] mb/asustek_computer/k53sc: Restore EC ACPI mode after
+Subject: [PATCH 16/23] mb/asustek_computer/k53sc: Restore EC ACPI mode after
  S3 resume
 
 Hotkeys stopped working after a resume from S3. The EC leaves ACPI mode

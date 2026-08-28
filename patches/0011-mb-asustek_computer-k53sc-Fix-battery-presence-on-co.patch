@@ -1,7 +1,7 @@
 From 5da73f21a6f92255a59257791069b53d06b2372e Mon Sep 17 00:00:00 2001
 From: manerger <filidog82@gmail.com>
 Date: Sun, 23 Aug 2026 21:04:54 +0200
-Subject: [PATCH 11/21] mb/asustek_computer/k53sc: Fix battery presence on cold
+Subject: [PATCH 11/23] mb/asustek_computer/k53sc: Fix battery presence on cold
  boot
 
 BAT0 ._STA derived presence solely from B0FC, the last-full-charge

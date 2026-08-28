@@ -1,7 +1,7 @@
 From 2d60c29585cec6cfd45a617cd41f27eddc24fddf Mon Sep 17 00:00:00 2001
 From: manerger <filidog82@gmail.com>
 Date: Wed, 12 Aug 2026 19:11:30 +0200
-Subject: [PATCH 06/21] mb/asustek_computer/k53sc: Test GPI1 SMI (negative
+Subject: [PATCH 06/23] mb/asustek_computer/k53sc: Test GPI1 SMI (negative
  result)
 
 Keep this as a recorded experiment so it is not attempted again.

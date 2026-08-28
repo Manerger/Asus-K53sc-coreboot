@@ -37,6 +37,22 @@ the vendor firmware. (An earlier 103/105 °C reading was an artifact of
 `asus_wmi` not loading, because coreboot's DSDT had no `ATKD` device to bind
 to — not a firmware difference. Declaring `ATKD` resolved it.)
 
+## Two autoport traps worth knowing
+
+This board was brought up with `autoport`, which records what is **present and
+active at sample time**. Anything absent or powered down got written off, and
+each one looked like a hardware fault until traced:
+
+| symptom | cause | fix |
+|---|---|---|
+| Discrete GPU missing | `device ref peg10 off` — the GPU was power-gated by Optimus when autoport ran | enable `peg10` |
+| Optical drive powers up but never enumerates | `sata_port_map = 0x1` — no drive was fitted when autoport ran, so AHCI reported "1/6 ports implemented" and ports 2-6 as DUMMY | set the map to `0x3` |
+
+Power reaches such devices from the rail regardless, so they look alive while
+the controller never scans them. **If something on this board seems dead, check
+the devicetree before suspecting the hardware.** Four USB ports are still
+disabled in `usb_port_config` and have not been individually verified.
+
 ## Firmware options
 
 The board carries a CMOS option table, so a few things are switchable from a

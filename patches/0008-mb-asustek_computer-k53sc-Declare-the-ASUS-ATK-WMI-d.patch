@@ -1,7 +1,7 @@
 From 5c9744348b26a952f44a21fc19d85fefe3179975 Mon Sep 17 00:00:00 2001
 From: manerger <filidog82@gmail.com>
 Date: Wed, 12 Aug 2026 21:28:40 +0200
-Subject: [PATCH 08/21] mb/asustek_computer/k53sc: Declare the ASUS ATK WMI
+Subject: [PATCH 08/23] mb/asustek_computer/k53sc: Declare the ASUS ATK WMI
  device
 
 The stock firmware declares an ACPI-WMI device in \_SB that Linux binds
