@@ -1,0 +1,310 @@
+From c806dfbd0ff5f21666681dd02e4b0c5fa399a92b Mon Sep 17 00:00:00 2001
+From: manerger <filidog82@gmail.com>
+Date: Sat, 29 Aug 2026 21:56:45 +0200
+Subject: [PATCH] mb/asustek_computer/k53sc: Give the discrete GPU its
+ subsystem ID
+
+The GeForce GT 520MX has no ROM of its own, so nothing sources a PCI
+subsystem ID for it and config space 0x2c reads 0x00000000. Windows
+matches display drivers on that ID and every INF entry for DEV_1051 --
+including the ASUS one, SUBSYS_17621043 -- requires a specific value, so
+the card matched nothing and the NVIDIA driver failed with Code 43.
+
+0x2c is read-only: writes are dropped both through config space and
+through the PCI config mirror NVIDIA parts expose at BAR0 + 0x88000.
+NVIDIA provides a write-once override at config offset 0x40 which
+back-fills 0x2c, and that is what the factory firmware used -- a DXE
+driver in the stock image reads offset 0 looking for 0x105110de and, on
+a match, writes 0x17621043 to offset 0x40 via EFI_PCI_IO_PROTOCOL.
+
+The override is write-once per reset, and any power cycle of the GPU
+clears it -- it was observed reverting to zero as soon as runtime power
+management put the card into D3cold. Windows power-cycles the GPU while
+the driver initialises, so the DSDT re-stamps it from _PS0 as well.
+
+Also add the NVIDIA Optimus _DSM, ported from the factory DSDT. The
+driver queries that GUID, and the stock scope \_SB.PCI0.PEGR.GFX0 maps
+onto coreboot's \_SB.PCI0.PEGP.DEV0.
+
+With this, the proprietary NVIDIA driver initialises on Linux where it
+previously bound but registered no DRM node:
+
+  NVRM: loading NVIDIA UNIX x86_64 Kernel Module  390.157
+  [drm] Initialized nvidia-drm 0.0.0 for 0000:01:00.0
+  nvidia-smi: GeForce GT 520MX, 964 MiB
+
+nouveau is unaffected; it never reads the subsystem ID.
+
+Windows 11 25H2 still reports Code 43 with the last Fermi driver branch
+(391.35), but the device now matches nvami.inf natively and the same
+firmware drives the card correctly under Linux, so that is an OS/driver
+limitation rather than a firmware one.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .../asustek_computer/k53sc/acpi/dgpu.asl      | 154 ++++++++++++++++++
+ src/mainboard/asustek_computer/k53sc/dsdt.asl |   7 +
+ .../asustek_computer/k53sc/mainboard.c        |  56 +++++++
+ 3 files changed, 217 insertions(+)
+ create mode 100644 src/mainboard/asustek_computer/k53sc/acpi/dgpu.asl
+
+diff --git a/src/mainboard/asustek_computer/k53sc/acpi/dgpu.asl b/src/mainboard/asustek_computer/k53sc/acpi/dgpu.asl
+new file mode 100644
+index 0000000000..b2c8715222
+--- /dev/null
++++ b/src/mainboard/asustek_computer/k53sc/acpi/dgpu.asl
+@@ -0,0 +1,154 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++/*
++ * NVIDIA Optimus ACPI interface for the discrete GeForce GT 520MX (10de:1051).
++ *
++ * The NVIDIA Windows driver refuses to start the GPU (Code 43,
++ * CM_PROB_FAILED_POST_START) unless the platform exposes the Optimus _DSM.
++ * nouveau does not need it -- it parses the VBIOS and runs devinit itself --
++ * which is why the card worked under Linux with only the _ROM method that
++ * coreboot's pci_rom_ssdt() generates.
++ *
++ * Reverse-engineered from the factory AMI DSDT (OEM "_ASUS_", table
++ * "NoteBook").  The stock firmware placed these methods in
++ * \_SB.PCI0.PEGR.GFX0; coreboot names the same two devices PEGP and DEV0
++ * (northbridge/intel/sandybridge/acpi/peg.asl), so the scope differs while
++ * the semantics below are kept identical to the factory implementation.
++ *
++ * GPIO naming differs too.  The factory firmware declared its own region over
++ * GPIOBASE (which it programmed to 0x500) and named the pins PI17/PO50/PO54;
++ * coreboot programs GPIOBASE to 0x480 and southbridge/intel/bd82x6x/acpi/pch.asl
++ * already exposes every level bit globally as \GPnn, so those are used directly:
++ *
++ *	\GP17	dGPU power good		(input,  stock PI17)
++ *	\GP50	dGPU power enable	(output, stock PO50)
++ *	\GP54	dGPU reset/enable	(output, stock PO54)
++ */
++
++Scope (\)
++{
++	/* Optimus power state, as negotiated through _DSM function 0x1A. */
++	Name (OMPR, 0x02)
++}
++
++Scope (\_SB.PCI0.PEGP.DEV0)
++{
++	/*
++	 * NVIDIA's subsystem ID override. Config space 0x2c is read-only on
++	 * this part; writing the ID to 0x40 back-fills it. coreboot does this
++	 * once at boot (mainboard.c), but the register is write-once *per
++	 * reset*: any power cycle of the GPU clears it, and it has been
++	 * observed going back to zero under Linux as soon as runtime power
++	 * management put the card into D3cold. Windows power-cycles the GPU
++	 * while the NVIDIA driver initialises, so the ID has to be restored
++	 * every time the device is powered back up, or the driver finds a
++	 * board it cannot identify.
++	 */
++	OperationRegion (NVCF, PCI_Config, 0x40, 0x04)
++	Field (NVCF, DWordAcc, NoLock, Preserve)
++	{
++		SSIO,   32
++	}
++
++	Method (RSSI, 0, NotSerialized)
++	{
++		SSIO = 0x17621043
++	}
++
++	/*
++	 * Bring the discrete GPU up.  This mirrors the factory _ON() exactly.
++	 *
++	 * coreboot already leaves the rails in this method's end state
++	 * (GP17 = 1, GP50 = 1, GP54 = 0), so under the current configuration
++	 * this is a no-op reassertion rather than a cold power-up.  It is kept
++	 * faithful so that runtime power management has a correct sequence to
++	 * call if it is ever wired up.
++	 */
++	Method (DGON, 0, Serialized)
++	{
++		\GP50 = Zero
++		Sleep (100)
++		\GP54 = Zero
++		Sleep (100)
++
++		/* Wait for the GPU's power-good input to assert. */
++		Local0 = \GP17
++		While (!Local0) {
++			Sleep (10)
++			Local0 = \GP17
++		}
++
++		\GP50 = One
++		Sleep (100)
++
++		/* A cold power-up clears the override. */
++		RSSI ()
++	}
++
++	Method (_PS0, 0, NotSerialized)
++	{
++		If (OMPR == 0x03) {
++			DGON ()
++			OMPR = 0x02
++		}
++
++		/* The GPU may have just come back from D3; re-stamp the ID. */
++		RSSI ()
++	}
++
++	Method (_PS3, 0, NotSerialized)
++	{
++	}
++
++	/*
++	 * Optimus _DSM, UUID a486d8f8-0bda-471b-a72b-6042a6b5bee0.
++	 *
++	 * Only revision 0x0100 is defined; anything else must report
++	 * "unsupported" (0x80000002).  Two functions are implemented, matching
++	 * the factory firmware:
++	 *
++	 *   0x00  return the supported-function mask (0x04030001)
++	 *   0x1A  Optimus caps/power control -- latch the requested power
++	 *         policy into OMPR and report the current GPU power state
++	 */
++	Method (_DSM, 4, Serialized)
++	{
++		If (Arg0 == ToUUID ("a486d8f8-0bda-471b-a72b-6042a6b5bee0")) {
++			If (Arg1 != 0x0100) {
++				Return (Buffer (0x04) { 0x02, 0x00, 0x00, 0x80 })
++			}
++
++			/* Arg3 is a 4-byte little-endian parameter buffer. */
++			Local0 = (DerefOf (Arg3 [0x03]) << 0x18)
++			Local0 += (DerefOf (Arg3 [0x02]) << 0x10)
++			Local0 += (DerefOf (Arg3 [0x01]) << 0x08)
++			Local0 += DerefOf (Arg3 [0x00])
++
++			If (Arg2 == 0x00) {
++				Return (Buffer (0x04) { 0x01, 0x00, 0x03, 0x04 })
++			}
++
++			If (Arg2 == 0x1A) {
++				If (Local0 & One) {
++					Local2 = (Local0 >> 0x18)
++					If (Local2 == 0x03) {
++						OMPR = 0x03
++					}
++					If (Local2 == 0x02) {
++						OMPR = 0x02
++					}
++				}
++
++				If (\GP54 == Zero) {
++					Return (Buffer (0x04) { 0x59, 0x00, 0x00, 0x01 })
++				} Else {
++					Return (Buffer (0x04) { 0x41, 0x00, 0x00, 0x01 })
++				}
++			}
++
++			Return (Buffer (0x04) { 0x02, 0x00, 0x00, 0x80 })
++		}
++
++		Return (Zero)
++	}
++}
+diff --git a/src/mainboard/asustek_computer/k53sc/dsdt.asl b/src/mainboard/asustek_computer/k53sc/dsdt.asl
+index d717dc5aca..17449601b5 100644
+--- a/src/mainboard/asustek_computer/k53sc/dsdt.asl
++++ b/src/mainboard/asustek_computer/k53sc/dsdt.asl
+@@ -31,4 +31,11 @@ DefinitionBlock(
+ 		#include <drivers/intel/gma/acpi/default_brightness_levels.asl>
+ 		#include <southbridge/intel/bd82x6x/acpi/pch.asl>
+ 	}
++
++	/*
++	 * Must come after the PCI0 block above: it scopes into
++	 * \_SB.PCI0.PEGP.DEV0, which sandybridge/acpi/peg.asl declares, and
++	 * uses the \GPnn level bits that bd82x6x/acpi/pch.asl defines.
++	 */
++	#include "acpi/dgpu.asl"
+ }
+diff --git a/src/mainboard/asustek_computer/k53sc/mainboard.c b/src/mainboard/asustek_computer/k53sc/mainboard.c
+index 1d13f98062..96ab95e925 100644
+--- a/src/mainboard/asustek_computer/k53sc/mainboard.c
++++ b/src/mainboard/asustek_computer/k53sc/mainboard.c
+@@ -1,6 +1,8 @@
+ /* SPDX-License-Identifier: GPL-2.0-only */
+ 
+ #include <acpi/acpi.h>
++#include <bootstate.h>
++#include <console/console.h>
+ #include <device/device.h>
+ #include <device/pci_def.h>
+ #include <device/pci_ops.h>
+@@ -10,6 +12,11 @@
+ 
+ #include "ec.h"
+ 
++/* NVIDIA's write-once subsystem ID override; back-fills the read-only 0x2c. */
++#define K53SC_NV_SUBSYSTEM_ID_OVERRIDE	0x40
++/* ASUS 0x1043, board 0x1762 -- the value nvami.inf expects for this machine. */
++#define K53SC_DGPU_SUBSYSTEM_ID		0x17621043
++
+ 
+ static void mainboard_init(struct device *dev)
+ {
+@@ -63,6 +70,55 @@ static void k53sc_configure_dgpu(void)
+ 	printk(BIOS_INFO, "K53SC: discrete GPU disabled via CMOS option\n");
+ }
+ 
++/*
++ * Give the discrete GeForce GT 520MX its PCI subsystem ID.
++ *
++ * The GPU has no ROM of its own, so nothing sources a subsystem ID for it and
++ * config space 0x2c reads 0x00000000. Windows matches display drivers on that
++ * ID, and every INF entry for DEV_1051 -- including the ASUS one in nvami.inf,
++ * SUBSYS_17621043 -- requires a specific value, so the card matches nothing and
++ * the NVIDIA driver fails with Code 43 (CM_PROB_FAILED_POST_START).
++ *
++ * 0x2c itself is read-only: writes are dropped, both through config space and
++ * through the PCI config mirror NVIDIA parts expose at BAR0 + 0x88000. NVIDIA
++ * instead provides a write-once override at config offset 0x40 which back-fills
++ * 0x2c, and that is how OEMs brand these parts. The factory firmware used it --
++ * a DXE driver in the stock image reads offset 0 for 0x105110de and, on a match,
++ * writes 0x17621043 to offset 0x40 through EFI_PCI_IO_PROTOCOL.Pci.Write.
++ *
++ * Verified on the board: 0x2c and 0x40 both read zero, then after writing
++ * 0x17621043 to 0x40 both read 0x17621043.
++ *
++ * The option ROM cannot do this for us. Its init entry deliberately declines to
++ * run on an Optimus system: it tests bit 7 of byte 0x48 in the image, then zeroes
++ * its own size field and returns without touching the hardware.
++ *
++ * nouveau does not care either way -- it never looks at the subsystem ID.
++ */
++static void k53sc_set_dgpu_subsystem_id(void *unused)
++{
++	struct device *peg, *gpu;
++
++	peg = pcidev_on_root(1, 0);
++	if (!peg || !peg->enabled || !peg->downstream)
++		return;
++
++	gpu = (struct device *)pcidev_path_behind(peg->downstream, PCI_DEVFN(0, 0));
++	if (!gpu || !gpu->enabled)
++		return;
++
++	if (pci_read_config32(gpu, PCI_SUBSYSTEM_VENDOR_ID))
++		return;
++
++	pci_write_config32(gpu, K53SC_NV_SUBSYSTEM_ID_OVERRIDE,
++			   K53SC_DGPU_SUBSYSTEM_ID);
++
++	printk(BIOS_INFO, "K53SC: discrete GPU subsystem ID set to %08x\n",
++	       pci_read_config32(gpu, PCI_SUBSYSTEM_VENDOR_ID));
++}
++
++BOOT_STATE_INIT_ENTRY(BS_DEV_INIT, BS_ON_EXIT, k53sc_set_dgpu_subsystem_id, NULL);
++
+ static void mainboard_enable(struct device *dev)
+ {
+ 	dev->ops->init = mainboard_init;
+-- 
+2.55.0
+

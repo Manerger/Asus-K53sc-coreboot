@@ -31,4 +31,11 @@ DefinitionBlock(
 		#include <drivers/intel/gma/acpi/default_brightness_levels.asl>
 		#include <southbridge/intel/bd82x6x/acpi/pch.asl>
 	}
+
+	/*
+	 * Must come after the PCI0 block above: it scopes into
+	 * \_SB.PCI0.PEGP.DEV0, which sandybridge/acpi/peg.asl declares, and
+	 * uses the \GPnn level bits that bd82x6x/acpi/pch.asl defines.
+	 */
+	#include "acpi/dgpu.asl"
 }

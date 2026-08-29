@@ -1,3 +1,4 @@
+c806dfbd0f mb/asustek_computer/k53sc: Give the discrete GPU its subsystem ID
 ed8210bfa8 mb/asustek_computer/k53sc: Document the required binary blobs
 c959ff03df mb/asustek_computer/k53sc: Enable the PCH thermal controller
 a08b4f672a mb/asustek_computer/k53sc: Enable the optical drive's SATA port

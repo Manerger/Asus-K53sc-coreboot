@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 
 #include <acpi/acpi.h>
+#include <bootstate.h>
+#include <console/console.h>
 #include <device/device.h>
 #include <device/pci_def.h>
 #include <device/pci_ops.h>
@@ -9,6 +11,11 @@
 #include <pc80/keyboard.h>
 
 #include "ec.h"
+
+/* NVIDIA's write-once subsystem ID override; back-fills the read-only 0x2c. */
+#define K53SC_NV_SUBSYSTEM_ID_OVERRIDE	0x40
+/* ASUS 0x1043, board 0x1762 -- the value nvami.inf expects for this machine. */
+#define K53SC_DGPU_SUBSYSTEM_ID		0x17621043
 
 
 static void mainboard_init(struct device *dev)
@@ -62,6 +69,55 @@ static void k53sc_configure_dgpu(void)
 	peg->enabled = 0;
 	printk(BIOS_INFO, "K53SC: discrete GPU disabled via CMOS option\n");
 }
+
+/*
+ * Give the discrete GeForce GT 520MX its PCI subsystem ID.
+ *
+ * The GPU has no ROM of its own, so nothing sources a subsystem ID for it and
+ * config space 0x2c reads 0x00000000. Windows matches display drivers on that
+ * ID, and every INF entry for DEV_1051 -- including the ASUS one in nvami.inf,
+ * SUBSYS_17621043 -- requires a specific value, so the card matches nothing and
+ * the NVIDIA driver fails with Code 43 (CM_PROB_FAILED_POST_START).
+ *
+ * 0x2c itself is read-only: writes are dropped, both through config space and
+ * through the PCI config mirror NVIDIA parts expose at BAR0 + 0x88000. NVIDIA
+ * instead provides a write-once override at config offset 0x40 which back-fills
+ * 0x2c, and that is how OEMs brand these parts. The factory firmware used it --
+ * a DXE driver in the stock image reads offset 0 for 0x105110de and, on a match,
+ * writes 0x17621043 to offset 0x40 through EFI_PCI_IO_PROTOCOL.Pci.Write.
+ *
+ * Verified on the board: 0x2c and 0x40 both read zero, then after writing
+ * 0x17621043 to 0x40 both read 0x17621043.
+ *
+ * The option ROM cannot do this for us. Its init entry deliberately declines to
+ * run on an Optimus system: it tests bit 7 of byte 0x48 in the image, then zeroes
+ * its own size field and returns without touching the hardware.
+ *
+ * nouveau does not care either way -- it never looks at the subsystem ID.
+ */
+static void k53sc_set_dgpu_subsystem_id(void *unused)
+{
+	struct device *peg, *gpu;
+
+	peg = pcidev_on_root(1, 0);
+	if (!peg || !peg->enabled || !peg->downstream)
+		return;
+
+	gpu = (struct device *)pcidev_path_behind(peg->downstream, PCI_DEVFN(0, 0));
+	if (!gpu || !gpu->enabled)
+		return;
+
+	if (pci_read_config32(gpu, PCI_SUBSYSTEM_VENDOR_ID))
+		return;
+
+	pci_write_config32(gpu, K53SC_NV_SUBSYSTEM_ID_OVERRIDE,
+			   K53SC_DGPU_SUBSYSTEM_ID);
+
+	printk(BIOS_INFO, "K53SC: discrete GPU subsystem ID set to %08x\n",
+	       pci_read_config32(gpu, PCI_SUBSYSTEM_VENDOR_ID));
+}
+
+BOOT_STATE_INIT_ENTRY(BS_DEV_INIT, BS_ON_EXIT, k53sc_set_dgpu_subsystem_id, NULL);
 
 static void mainboard_enable(struct device *dev)
 {

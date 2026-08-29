@@ -15,7 +15,9 @@ that applies to upstream coreboot, which is what you actually need to build it.
 - Six Fn hotkeys (volume, mute, touchpad, …) via the ASUS ATK WMI layer
 - HDMI output
 - **UEFI boot** — edk2 UefiPayloadPkg with SMMSTORE for variables
-- **Both GPUs** — the discrete GeForce GT 520MX works under nouveau via PRIME offload
+- **Both GPUs** — the discrete GeForce GT 520MX works under nouveau via PRIME offload,
+  and under the proprietary NVIDIA driver (390.157) since the firmware started
+  programming the GPU's PCI subsystem ID
 - **Suspend (S3) and poweroff (S5)** — see below; these were the hard part
 
 ## The function row
@@ -92,6 +94,12 @@ done for the security benefit, not for space.
   pair (`0x23` then `0x14`), so no keymap can separate them. This is why the
   function row uses a toggle rather than an Fn layer. Everything those keys
   should do is available on the plain row instead.
+- **The discrete GPU still reports Code 43 under Windows 11.** The firmware side
+  is done — the card enumerates as `SUBSYS_17621043`, matches `nvami.inf`
+  natively, and NVIDIA's own installer accepts it. But 391.35 is the last Fermi
+  driver branch and predates Windows 11. The same firmware drives the card
+  correctly under Linux with the proprietary 390.157 driver, so this is an
+  OS/driver limit rather than a firmware one; it worked under Windows 10.
 - The two binary blobs are not included; see
   [`BLOBS.md`](src/mainboard/asustek_computer/k53sc/BLOBS.md).
 
