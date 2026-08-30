@@ -13,7 +13,7 @@ that applies to upstream coreboot, which is what you actually need to build it.
 - Native backlight control
 - Battery and AC status, correct on cold boot and hot insert
 - Six Fn hotkeys (volume, mute, touchpad, …) via the ASUS ATK WMI layer
-- HDMI output
+- HDMI output *in linux
 - **UEFI boot** — edk2 UefiPayloadPkg with SMMSTORE for variables
 - **Both GPUs under Linux** — the discrete GeForce GT 520MX works under nouveau
   via PRIME offload and under the proprietary NVIDIA driver (390.157). Under
