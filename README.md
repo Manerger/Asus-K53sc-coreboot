@@ -94,12 +94,22 @@ done for the security benefit, not for space.
   pair (`0x23` then `0x14`), so no keymap can separate them. This is why the
   function row uses a toggle rather than an Fn layer. Everything those keys
   should do is available on the plain row instead.
-- **The discrete GPU still reports Code 43 under Windows 11.** The firmware side
-  is done — the card enumerates as `SUBSYS_17621043`, matches `nvami.inf`
-  natively, and NVIDIA's own installer accepts it. But 391.35 is the last Fermi
-  driver branch and predates Windows 11. The same firmware drives the card
-  correctly under Linux with the proprietary 390.157 driver, so this is an
-  OS/driver limit rather than a firmware one; it worked under Windows 10.
+- **The discrete GPU reports Code 43 under Windows.** The firmware side is done:
+  the card enumerates as `SUBSYS_17621043`, matches `nvami.inf` natively,
+  NVIDIA's installer accepts it, and the full Optimus ACPI surface is in place
+  (`_DSM`, `MXDS`, `MXMX`, `_STA`, `_PSC`, `_PS0`/`_PS3`, `_DOD` with display
+  children, and the `WMI1`/OPT1 device, which Windows enumerates OK). The
+  driver still declines: `PNP_DEVICE_FAILED` with `ProblemStatus`
+  `STATUS_SUCCESS`, meaning it starts, runs its own validation and rejects the
+  platform with no OS-level error. Ruled out by measurement: OS version (10 and
+  11 fail alike), driver version (391.35 and 392.68), INF matching, the
+  subsystem ID, `OPVK`, HVCI, and any extra vendor init — Ghidra shows the
+  factory DXE driver does nothing beyond the config `0x40` write this port
+  replicates. The same firmware drives the card correctly under Linux, on
+  nouveau **and** on NVIDIA's proprietary 390.157 driver. Note the card last
+  worked under Windows when this machine had its original Sandy Bridge i3; the
+  stock firmware cannot POST the current Ivy Bridge i7 at all, so that data
+  point cannot be separated from the CPU change.
 - The two binary blobs are not included; see
   [`BLOBS.md`](src/mainboard/asustek_computer/k53sc/BLOBS.md).
 

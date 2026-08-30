@@ -1,0 +1,477 @@
+From 69ebd68bb9f8c1f2458bc50c79346c145091ddcd Mon Sep 17 00:00:00 2001
+From: manerger <filidog82@gmail.com>
+Date: Sun, 30 Aug 2026 12:37:44 +0200
+Subject: [PATCH] mb/asustek_computer/k53sc: Complete the Optimus ACPI port
+
+Port the rest of the discrete GPU's ACPI surface from the factory
+firmware: MXDS and MXMX (the MXM display-switching methods NVIDIA
+drivers probe for), _STA/DSTA, _PSC, DON/DOFF, PRST, the display
+block (_INI, _DOS, _DOD and the LCDD/CRTD/HDMI children with
+_DCS/_DGS/_DSS), and the WMI1 Optimus device (PNP0C14, _UID "OPT1")
+whose WMMX method forwards "_DSM" and handles "NOPG". Windows
+enumerates WMI1 as ACPI\PNP0C14\OPT1 with status OK.
+
+Two deviations from the factory implementation, both deliberate:
+
+The backlight methods (_BCL/_BCM/_BQC) are not ported. They depend on
+vendor plumbing this port does not have (\_SB.BRTI, PWBT, STBR, HWHG),
+and on this board the panel is driven by the iGPU with brightness
+owned by the EC, so a second backlight interface on the discrete GPU
+would fight the working one.
+
+The factory firmware reaches the PEG and GPU config space through
+SystemMemory regions hardcoded at MMCONF 0xE0008000 and 0xE0100000.
+coreboot places MMCONF at 0xf0000000, so those addresses would be
+wrong here; PCI_Config regions are used instead, which resolve
+through the device and do not depend on where MMCONF lives.
+
+Also fix two defects in the earlier _DSM commit:
+
+_PS0 was gated on OMPR, the power policy the driver requests through
+_DSM function 0x1A. The factory firmware gates it on DGPS, the flag
+_PS3 sets to record that the GPU was actually powered down, and only
+consults OMPR to decide whether a power-down is wanted. Use the same
+semantics.
+
+DGON drove GP50/GP54 unconditionally. Because _OFF here is a no-op --
+coreboot leaves the discrete GPU powered -- _PS0 would find the GPU
+still running and cut its rails underneath a driver that was mid
+initialisation. It also inherited the factory's unbounded wait for
+power-good, which in an ACPI method hangs the OS's power transition
+rather than failing it. DGON now returns immediately when power-good
+is already asserted, and the wait is bounded.
+
+All methods were checked by execution, not just compilation:
+acpiexec on the built AML returns _STA=0x0F, MXMX=1, _DOD as a
+4-element package, LCDD._DCS=0x1F and _DGS=1, with no exceptions.
+
+This does not fix Code 43 under Windows. With the subsystem ID
+programmed and this ACPI in place the card matches nvami.inf natively
+and NVIDIA's installer accepts it, but the driver still reports
+PNP_DEVICE_FAILED with ProblemStatus STATUS_SUCCESS -- it starts, runs
+its own validation and declines, with no OS-level error. The same
+firmware drives the card correctly under Linux, including with
+NVIDIA's proprietary 390.157 driver.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .../asustek_computer/k53sc/acpi/dgpu.asl      | 361 +++++++++++++++++-
+ 1 file changed, 353 insertions(+), 8 deletions(-)
+
+diff --git a/src/mainboard/asustek_computer/k53sc/acpi/dgpu.asl b/src/mainboard/asustek_computer/k53sc/acpi/dgpu.asl
+index b2c8715222..df2c4f0c9f 100644
+--- a/src/mainboard/asustek_computer/k53sc/acpi/dgpu.asl
++++ b/src/mainboard/asustek_computer/k53sc/acpi/dgpu.asl
+@@ -29,6 +29,25 @@ Scope (\)
+ {
+ 	/* Optimus power state, as negotiated through _DSM function 0x1A. */
+ 	Name (OMPR, 0x02)
++
++	/*
++	 * Hybrid-graphics mux state. The factory firmware keeps these on the
++	 * integrated GPU (\_SB.PCI0.GFX0) as part of a larger hybrid state
++	 * block that only its own ASL reads back; nothing outside the DSDT
++	 * observes them, so local equivalents behave identically from the
++	 * driver's point of view.
++	 *
++	 *   HLMX/HCMX/HDMX/HHMX  LCD/CRT/DVI/HDMI muxed to the discrete GPU
++	 *   HLMM/HCMM/HDMU/HHMM  the corresponding "mux mode" flags
++	 */
++	Name (HLMX, Zero)
++	Name (HCMX, Zero)
++	Name (HDMX, Zero)
++	Name (HHMX, Zero)
++	Name (HLMM, Zero)
++	Name (HCMM, Zero)
++	Name (HDMU, Zero)
++	Name (HHMM, Zero)
+ }
+ 
+ Scope (\_SB.PCI0.PEGP.DEV0)
+@@ -50,6 +69,19 @@ Scope (\_SB.PCI0.PEGP.DEV0)
+ 		SSIO,   32
+ 	}
+ 
++	/*
++	 * Vendor/device ID, for the presence check. The factory firmware read
++	 * this through a SystemMemory region hardcoded at MMCONF 0xE0100000;
++	 * coreboot places MMCONF at 0xf0000000, so that address would be wrong
++	 * here. A PCI_Config region resolves through the device instead and is
++	 * independent of where MMCONF lives.
++	 */
++	OperationRegion (NVID, PCI_Config, 0x00, 0x04)
++	Field (NVID, DWordAcc, NoLock, Preserve)
++	{
++		VID0,   32
++	}
++
+ 	Method (RSSI, 0, NotSerialized)
+ 	{
+ 		SSIO = 0x17621043
+@@ -66,16 +98,40 @@ Scope (\_SB.PCI0.PEGP.DEV0)
+ 	 */
+ 	Method (DGON, 0, Serialized)
+ 	{
++		/*
++		 * If power-good is already asserted the GPU is up and running.
++		 * Driving GP50/GP54 in that state would reset a live GPU -- and
++		 * because _OFF here is a no-op, that is exactly the state _PS0
++		 * finds it in. Do nothing but re-stamp the subsystem ID.
++		 *
++		 * The factory firmware has no such guard because its _OFF really
++		 * does cut the rails, so its _ON only ever runs against a GPU
++		 * that is genuinely powered down.
++		 */
++		If ((\GP17 == One)) {
++			RSSI ()
++			Return (Zero)
++		}
++
+ 		\GP50 = Zero
+ 		Sleep (100)
+ 		\GP54 = Zero
+ 		Sleep (100)
+ 
+-		/* Wait for the GPU's power-good input to assert. */
+-		Local0 = \GP17
+-		While (!Local0) {
+-			Sleep (10)
+-			Local0 = \GP17
++		/*
++		 * Wait for power-good, but bounded. The factory loop is
++		 * unbounded; an ACPI method that never returns hangs the OS's
++		 * power transition instead of just failing it. ~1 s is far more
++		 * than the rail needs.
++		 */
++		Local0 = 100
++		While ((Local0 > Zero)) {
++			If ((\GP17 == One)) {
++				Local0 = Zero
++			} Else {
++				Sleep (10)
++				Local0--
++			}
+ 		}
+ 
+ 		\GP50 = One
+@@ -83,21 +139,263 @@ Scope (\_SB.PCI0.PEGP.DEV0)
+ 
+ 		/* A cold power-up clears the override. */
+ 		RSSI ()
++		Return (Zero)
++	}
++
++	/*
++	 * Display-switching block, ported from the factory firmware.
++	 *
++	 * The discrete GPU has no display outputs wired on this board -- the
++	 * panel and HDMI both hang off the iGPU -- so these report a static,
++	 * consistent state rather than driving anything. They exist because
++	 * the factory firmware exposes them and the NVIDIA driver may probe
++	 * for them. The backlight methods (_BCL/_BCM/_BQC) are deliberately
++	 * NOT ported: they depend on vendor plumbing (\_SB.BRTI, PWBT, STBR,
++	 * HWHG) and brightness on this board is owned by the EC and the iGPU.
++	 */
++	Name (NXTD, One)
++	Name (LCDM, 0x01)
++	Name (CRTM, 0x02)
++	Name (TVOM, 0x04)
++	Name (DVIM, 0x08)
++	Name (HDMM, 0x10)
++	Name (DONE, Zero)
++	Name (DOSF, One)
++	Name (BRNC, Zero)
++	Name (DGPS, Zero)
++	/* Which outputs the platform considers available. */
++	Name (AVLD, 0x1F)
++
++	Method (_INI, 0, NotSerialized)
++	{
++	}
++
++	Method (_DOS, 1, NotSerialized)
++	{
++		DOSF = (Arg0 & 0x03)
++		BRNC = (Arg0 >> 0x02)
++		BRNC &= 0x01
++	}
++
++	Method (_DOD, 0, NotSerialized)
++	{
++		Return (Package (0x04)
++		{
++			0x0110,
++			0x80000100,
++			0x80007330,
++			0x80006340
++		})
++	}
++
++	Device (LCDD)
++	{
++		Name (_ADR, 0x0110)
++
++		Method (_DCS, 0, NotSerialized)
++		{
++			If ((^^AVLD & ^^LCDM)) {
++				Return (0x1F)
++			}
++			Return (0x1D)
++		}
++
++		Method (_DGS, 0, NotSerialized)
++		{
++			If ((^^NXTD & ^^LCDM)) {
++				Return (One)
++			}
++			Return (Zero)
++		}
++
++		Method (_DSS, 1, NotSerialized)
++		{
++			^^DONE = One
++		}
++	}
++
++	Device (CRTD)
++	{
++		Name (_ADR, 0x80000100)
++
++		Method (_DCS, 0, NotSerialized)
++		{
++			If ((^^AVLD & ^^CRTM)) {
++				Return (0x1F)
++			}
++			Return (0x1D)
++		}
++
++		Method (_DGS, 0, NotSerialized)
++		{
++			If ((^^NXTD & ^^CRTM)) {
++				Return (One)
++			}
++			Return (Zero)
++		}
++
++		Method (_DSS, 1, NotSerialized)
++		{
++			If ((Arg0 & 0x40000000)) {
++				If ((Arg0 & 0x80000000)) {
++					^^DONE = One
++				}
++			}
++		}
++	}
++
++	Device (HDMI)
++	{
++		Name (_ADR, 0x80007330)
++
++		Method (_DCS, 0, NotSerialized)
++		{
++			If ((^^AVLD & ^^HDMM)) {
++				Return (0x1F)
++			}
++			Return (0x1D)
++		}
++
++		Method (_DGS, 0, NotSerialized)
++		{
++			If ((^^NXTD & ^^HDMM)) {
++				Return (One)
++			}
++			Return (Zero)
++		}
++
++		Method (_DSS, 1, NotSerialized)
++		{
++			If ((Arg0 & 0x40000000)) {
++				If ((Arg0 & 0x80000000)) {
++					^^DONE = One
++				}
++			}
++		}
+ 	}
+ 
++	/* _STA: the discrete GPU is present, enabled and functioning. */
++	Method (_STA, 0, Serialized)
++	{
++		Return (0x0F)
++	}
++
++	Method (DSTA, 0, Serialized)
++	{
++		Return (_STA ())
++	}
++
++	/*
++	 * MXM display-switching methods. NVIDIA drivers probe for these on
++	 * hybrid-graphics hardware; the factory firmware provides both.
++	 *
++	 * MXDS is ported verbatim, including its bug: the predicate is
++	 * "Arg0 & 0x00", which is always zero, so the factory firmware always
++	 * takes the else branch and never returns the mux state. The driver
++	 * was written against that behaviour, so reproducing it is safer than
++	 * "fixing" it to the presumably intended "Arg0 & 0x01".
++	 */
++	Method (MXDS, 1, NotSerialized)
++	{
++		If ((Arg0 & 0x00)) {
++			Return (\HLMX)
++		}
++
++		\HLMX = One
++		\HCMX = One
++		Sleep (100)
++
++		/*
++		 * The factory method just falls off the end here, which iasl
++		 * rejects under coreboot's warnings-as-errors. An ACPI method
++		 * that completes without an explicit Return yields Zero, so
++		 * returning it explicitly keeps runtime behaviour identical.
++		 */
++		Return (Zero)
++	}
++
++	Method (MXMX, 1, NotSerialized)
++	{
++		\HLMM = One
++		\HCMM = One
++		\HDMU = One
++		\HHMM = One
++		\HLMX = One
++		\HCMX = One
++		\HDMX = One
++		\HHMX = One
++		Return (One)
++	}
++
++	/*
++	 * The factory firmware exposes _ON/_OFF on the device itself rather
++	 * than through a PowerResource. _OFF is deliberately a no-op here:
++	 * coreboot leaves the discrete GPU powered, and actually cutting its
++	 * rails from ACPI has not been validated on this board.
++	 */
++	Method (_ON, 0, NotSerialized)
++	{
++		DGON ()
++	}
++
++	Method (_OFF, 0, NotSerialized)
++	{
++	}
++
++	/*
++	 * Power-state bookkeeping, matching the factory firmware's semantics.
++	 *
++	 * An earlier version of this file gated _PS0 on OMPR, which was wrong:
++	 * OMPR is the *policy* the driver requests through _DSM function 0x1A,
++	 * while DGPS is the flag _PS3 sets to record that the GPU was actually
++	 * powered down. Stock powers back up on DGPS and only consults OMPR to
++	 * decide whether a power-down is wanted at all.
++	 */
++	Name (_PSC, Zero)
++
+ 	Method (_PS0, 0, NotSerialized)
+ 	{
+-		If (OMPR == 0x03) {
+-			DGON ()
+-			OMPR = 0x02
++		_PSC = Zero
++
++		If ((DGPS != Zero)) {
++			DON ()
++			DGPS = Zero
+ 		}
+ 
+ 		/* The GPU may have just come back from D3; re-stamp the ID. */
+ 		RSSI ()
+ 	}
+ 
++	Method (DON, 0, NotSerialized)
++	{
++		DGON ()
++	}
++
+ 	Method (_PS3, 0, NotSerialized)
+ 	{
++		If ((\OMPR == 0x03)) {
++			If ((DGPS == Zero)) {
++				DOFF ()
++				DGPS = One
++			}
++			\OMPR = 0x02
++		}
++
++		_PSC = 0x03
++	}
++
++	Method (DOFF, 0, NotSerialized)
++	{
++		_OFF ()
++	}
++
++	/* Presence check, as the factory firmware exposes it. */
++	Method (PRST, 0, NotSerialized)
++	{
++		If ((VID0 == 0x105110DE)) {
++			Return (One)
++		}
++		Return (Zero)
+ 	}
+ 
+ 	/*
+@@ -152,3 +450,50 @@ Scope (\_SB.PCI0.PEGP.DEV0)
+ 		Return (Zero)
+ 	}
+ }
++
++/*
++ * NVIDIA Optimus WMI interface, ported from the factory firmware.
++ *
++ * The factory device forwarded "_DSM" requests to the *integrated* GPU's
++ * _DSM (\_SB.PCI0.GFX0._DSM), which owned the Optimus GUID there. coreboot's
++ * iGPU has no _DSM, and this port implements the Optimus _DSM directly on the
++ * discrete GPU instead, so the forward goes to PEGP.DEV0.
++ */
++Scope (\_SB.PCI0)
++{
++	Device (WMI1)
++	{
++		Name (_HID, "PNP0C14")
++		Name (_UID, "OPT1")
++		Name (_WDG, Buffer (0x14)
++		{
++			0x3C, 0x5C, 0xCB, 0xF6, 0xAE, 0x9C, 0xBD, 0x4E,
++			0xB5, 0x77, 0x93, 0x1E, 0xA3, 0x2A, 0x2C, 0xC0,
++			0x4D, 0x58, 0x01, 0x02
++		})
++
++		Method (WMMX, 3, NotSerialized)
++		{
++			CreateDWordField (Arg2, Zero, FUNC)
++
++			/* "_DSM" */
++			If ((FUNC == 0x4D53445F)) {
++				If ((SizeOf (Arg2) >= 0x1C)) {
++					CreateField (Arg2, Zero, 0x80, MUID)
++					CreateDWordField (Arg2, 0x10, REVI)
++					CreateDWordField (Arg2, 0x14, SFNC)
++					CreateField (Arg2, 0xE0, 0x20, XRG0)
++					Return (\_SB.PCI0.PEGP.DEV0._DSM (MUID, REVI, SFNC, XRG0))
++				}
++			}
++
++			/* "NOPG" -- power the discrete GPU up */
++			If ((FUNC == 0x47504F4E)) {
++				\_SB.PCI0.PEGP.DEV0.DGPS = One
++				\_SB.PCI0.PEGP.DEV0._PS0 ()
++			}
++
++			Return (Zero)
++		}
++	}
++}
+-- 
+2.55.0
+
