@@ -1,0 +1,59 @@
+From 4a036a296cb0c8f9fac27bfe8faba059f6b98801 Mon Sep 17 00:00:00 2001
+From: manerger <filidog82@gmail.com>
+Date: Sun, 30 Aug 2026 15:17:01 +0200
+Subject: [PATCH] mb/asustek_computer/k53sc: Re-stamp the dGPU subsystem ID
+ from _STA and _INI
+
+The subsystem ID override at config 0x40 is write-once per reset, and _PS0
+only covers ACPI-mediated power transitions. Re-stamp from _STA and _INI as
+well so the ID is restored on any path that evaluates device status.
+
+This does not fix the NVIDIA driver failing its initial start under Windows;
+that turned out to be a timing problem in the driver rather than a lost
+subsystem ID -- Windows enumerates the correct SUBSYS throughout, and a device
+restart after boot succeeds every time. The workaround lives in
+os-integration/windows/nvidia-dgpu-fix.ps1.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .../asustek_computer/k53sc/acpi/dgpu.asl          | 15 ++++++++++++++-
+ 1 file changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/src/mainboard/asustek_computer/k53sc/acpi/dgpu.asl b/src/mainboard/asustek_computer/k53sc/acpi/dgpu.asl
+index df2c4f0c9f..9e7e5129ef 100644
+--- a/src/mainboard/asustek_computer/k53sc/acpi/dgpu.asl
++++ b/src/mainboard/asustek_computer/k53sc/acpi/dgpu.asl
+@@ -168,6 +168,7 @@ Scope (\_SB.PCI0.PEGP.DEV0)
+ 
+ 	Method (_INI, 0, NotSerialized)
+ 	{
++		RSSI ()
+ 	}
+ 
+ 	Method (_DOS, 1, NotSerialized)
+@@ -274,9 +275,21 @@ Scope (\_SB.PCI0.PEGP.DEV0)
+ 		}
+ 	}
+ 
+-	/* _STA: the discrete GPU is present, enabled and functioning. */
++	/*
++	 * _STA: the discrete GPU is present, enabled and functioning.
++	 *
++	 * This also re-stamps the subsystem ID. The override at config 0x40 is
++	 * write-once *per reset*, and Windows power-cycles the GPU through
++	 * native PCI power management during device start -- which does not go
++	 * through _PS0, so the _PS0 re-stamp never runs and the driver finds a
++	 * board it cannot identify. Observed effect: Code 43 on every boot, but
++	 * a manual disable/enable (which does invoke _PS0) brings the card up
++	 * cleanly. _STA is evaluated as part of device start, so re-stamping
++	 * here covers the path _PS0 misses.
++	 */
+ 	Method (_STA, 0, Serialized)
+ 	{
++		RSSI ()
+ 		Return (0x0F)
+ 	}
+ 
+-- 
+2.55.0
+

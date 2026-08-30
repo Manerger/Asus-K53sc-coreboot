@@ -168,6 +168,7 @@ Scope (\_SB.PCI0.PEGP.DEV0)
 
 	Method (_INI, 0, NotSerialized)
 	{
+		RSSI ()
 	}
 
 	Method (_DOS, 1, NotSerialized)
@@ -274,9 +275,21 @@ Scope (\_SB.PCI0.PEGP.DEV0)
 		}
 	}
 
-	/* _STA: the discrete GPU is present, enabled and functioning. */
+	/*
+	 * _STA: the discrete GPU is present, enabled and functioning.
+	 *
+	 * This also re-stamps the subsystem ID. The override at config 0x40 is
+	 * write-once *per reset*, and Windows power-cycles the GPU through
+	 * native PCI power management during device start -- which does not go
+	 * through _PS0, so the _PS0 re-stamp never runs and the driver finds a
+	 * board it cannot identify. Observed effect: Code 43 on every boot, but
+	 * a manual disable/enable (which does invoke _PS0) brings the card up
+	 * cleanly. _STA is evaluated as part of device start, so re-stamping
+	 * here covers the path _PS0 misses.
+	 */
 	Method (_STA, 0, Serialized)
 	{
+		RSSI ()
 		Return (0x0F)
 	}
 
