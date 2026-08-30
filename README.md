@@ -15,11 +15,10 @@ that applies to upstream coreboot, which is what you actually need to build it.
 - Six Fn hotkeys (volume, mute, touchpad, …) via the ASUS ATK WMI layer
 - HDMI output
 - **UEFI boot** — edk2 UefiPayloadPkg with SMMSTORE for variables
-- **Both GPUs, on Linux and Windows** — the discrete GeForce GT 520MX works under
-  nouveau via PRIME offload, under the proprietary NVIDIA driver (390.157), and
-  under Windows (391.35), since the firmware started programming the GPU's PCI
-  subsystem ID. Windows needs one extra piece, a boot-time device restart; see
-  [`os-integration/windows/nvidia-dgpu-fix.ps1`](os-integration/windows/nvidia-dgpu-fix.ps1)
+- **Both GPUs under Linux** — the discrete GeForce GT 520MX works under nouveau
+  via PRIME offload and under the proprietary NVIDIA driver (390.157). Under
+  Windows the card is correctly identified and the driver installs natively, but
+  does not start; see the limitations below
 - **Suspend (S3) and poweroff (S5)** — see below; these were the hard part
 
 ## The function row
@@ -96,21 +95,28 @@ done for the security benefit, not for space.
   pair (`0x23` then `0x14`), so no keymap can separate them. This is why the
   function row uses a toggle rather than an Fn layer. Everything those keys
   should do is available on the plain row instead.
-- **Under Windows the discrete GPU needs a boot-time device restart.** The NVIDIA
-  driver fails its *initial* start with Code 43 (`CM_PROB_FAILED_POST_START`) and
-  `ProblemStatus` `STATUS_SUCCESS` — it starts, runs its own validation and
-  declines, with no OS-level error. Restarting the device once the system is up
-  succeeds every time, so
+- **Under Windows the discrete GPU does not work.** The firmware side is done:
+  the card enumerates as `SUBSYS_17621043`, and on a clean Windows install the
+  NVIDIA driver (391.35) installs and binds **natively** with no forcing. But it
+  fails to start with Code 43 (`CM_PROB_FAILED_POST_START`) and `ProblemStatus`
+  `STATUS_SUCCESS` — it starts, runs its own validation and declines, with no
+  OS-level error.
+
+  On one particular Windows install a boot-time device restart cleared it
+  reliably, which is what
   [`os-integration/windows/nvidia-dgpu-fix.ps1`](os-integration/windows/nvidia-dgpu-fix.ps1)
-  does that from a startup task. This is a timing problem in the driver's first
-  start, not a firmware fault: the subsystem ID is programmed, the full Optimus
-  ACPI surface is present, the card matches `nvami.inf` natively, and the same
-  firmware drives it correctly under Linux. Ruled out by measurement: OS version
-  (10 and 11 alike), driver version (391.35 and 392.68), INF matching, the
-  subsystem ID (re-stamping it earlier from `_STA`/`_INI` changes nothing and
-  Windows keeps enumerating the correct `SUBSYS` throughout), `OPVK`, HVCI, and
-  any extra vendor init — Ghidra shows the factory DXE driver does nothing beyond
-  the config `0x40` write this port replicates.
+  automates. **That did not reproduce on a later clean install** — there the
+  restart fails every time, so treat the script as a thing worth trying rather
+  than a fix.
+
+  Ruled out by measurement: OS version (10 and 11 alike), driver version (391.35
+  and 392.68), INF matching, the subsystem ID (re-stamping it earlier changes
+  nothing and Windows enumerates the correct `SUBSYS` throughout), `OPVK`, HVCI,
+  extra vendor init (Ghidra shows the factory DXE driver does nothing beyond the
+  config `0x40` write this port replicates), and GPU POST state (warm-rebooting
+  from a Linux that had the card fully initialised still gives Code 43). The
+  same firmware drives the card correctly under Linux on both drivers, so the
+  fault is inside `nvlddmkm.sys` and not reachable from firmware.
 
 - The two binary blobs are not included; see
   [`BLOBS.md`](src/mainboard/asustek_computer/k53sc/BLOBS.md).

@@ -6,8 +6,13 @@
     runs its own validation, and declines, with no OS-level error. Restarting
     the device once the system is up succeeds every time.
 
-    This is a timing/ordering problem in the driver's first start, not a
-    firmware fault: the firmware already programs the GPU's PCI subsystem ID
+    IMPORTANT: this worked reliably on one Windows install and NOT AT ALL on a
+    later clean install, where the restart fails every attempt. Treat it as
+    something worth trying, not a fix. Also disproved: warm-rebooting from a
+    Linux that had the GPU fully POSTed still yields Code 43, so the card's
+    initialisation state is not what the driver is unhappy about.
+
+    This is a problem inside the driver, not a firmware fault: the firmware already programs the GPU's PCI subsystem ID
     and exposes the full Optimus ACPI surface, the card matches nvami.inf
     natively, and the same firmware drives it correctly under Linux including
     with NVIDIA's proprietary driver. Re-stamping the subsystem ID earlier
